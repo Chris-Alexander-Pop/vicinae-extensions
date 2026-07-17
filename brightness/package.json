@@ -1,0 +1,61 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "brightness",
+  "title": "Brightness",
+  "description": "Control display brightness via brightnessctl (local-only)",
+  "categories": [
+    "System"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "chris",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "commands": [
+    {
+      "name": "brightness",
+      "title": "Set Brightness",
+      "subtitle": "Display",
+      "description": "Pick a brightness level or nudge it up/down with Ctrl+↑ / Ctrl+↓",
+      "mode": "view"
+    }
+  ],
+  "preferences": [
+    {
+      "name": "stepPercent",
+      "type": "textfield",
+      "title": "Step percent",
+      "description": "How much increase/decrease adjusts brightness (percent)",
+      "default": "5",
+      "required": false
+    },
+    {
+      "name": "device",
+      "type": "textfield",
+      "title": "Device",
+      "description": "Optional brightnessctl device name (leave empty for default)",
+      "default": "",
+      "required": false
+    }
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

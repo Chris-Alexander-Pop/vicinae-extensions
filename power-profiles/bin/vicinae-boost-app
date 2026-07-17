@@ -1,0 +1,47 @@
+#!/bin/bash
+# Restrictive helper for Vicinae power-profiles: only renice/ionice by PID.
+set -euo pipefail
+
+usage() {
+  echo "Usage: vicinae-boost-app boost|reset PID [PID...]" >&2
+  exit 2
+}
+
+[[ $# -ge 2 ]] || usage
+action=$1
+shift
+
+pids=()
+for pid in "$@"; do
+  if [[ ! "$pid" =~ ^[0-9]+$ ]]; then
+    echo "Invalid PID: $pid" >&2
+    exit 2
+  fi
+  if [[ ! -d "/proc/$pid" ]]; then
+    continue
+  fi
+  pids+=("$pid")
+done
+
+if [[ ${#pids[@]} -eq 0 ]]; then
+  echo "No live PIDs given" >&2
+  exit 1
+fi
+
+case "$action" in
+  boost)
+    renice -n -10 -p "${pids[@]}" >/dev/null
+    for pid in "${pids[@]}"; do
+      ionice -c 2 -n 0 -p "$pid" 2>/dev/null || true
+    done
+    ;;
+  reset)
+    renice -n 0 -p "${pids[@]}" >/dev/null
+    for pid in "${pids[@]}"; do
+      ionice -c 2 -n 4 -p "$pid" 2>/dev/null || true
+    done
+    ;;
+  *)
+    usage
+    ;;
+esac

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "power-profiles",
+  "title": "Power Profiles",
+  "description": "Switch TLP power profiles and boost open apps (local-only)",
+  "categories": [
+    "System"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "chris",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "commands": [
+    {
+      "name": "power-profiles",
+      "title": "Select Power Profile",
+      "subtitle": "TLP",
+      "description": "Switch between performance, balanced, and power-saver via TLP",
+      "mode": "view"
+    },
+    {
+      "name": "boost-app",
+      "title": "Boost App Priority",
+      "subtitle": "TLP",
+      "description": "Raise CPU and I/O priority for an open Hyprland app",
+      "mode": "view"
+    }
+  ],
+  "preferences": [],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}
