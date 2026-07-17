@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "topgrade",
+  "title": "Topgrade",
+  "description": "Run Topgrade in the background and track progress (local-only)",
+  "categories": [
+    "System"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "chris",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "commands": [
+    {
+      "name": "topgrade",
+      "title": "Topgrade",
+      "subtitle": "System",
+      "description": "Start a single Topgrade run and track steps/log live",
+      "mode": "view"
+    }
+  ],
+  "preferences": [],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop",
+    "install-runner": "bash scripts/install-runner.sh"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

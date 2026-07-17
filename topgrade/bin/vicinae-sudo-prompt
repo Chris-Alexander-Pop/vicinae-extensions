@@ -1,0 +1,280 @@
+#!/usr/bin/env python3
+"""Authorize sudo for Vicinae Topgrade (GTK4 + libadwaita).
+
+Always shows a password dialog (never silently succeeds because sudo was
+already cached). Warms the sudo timestamp on success.
+
+Exit 0 = sudo authorized. Exit 1 = cancelled. Exit 2 = toolkit failure.
+"""
+from __future__ import annotations
+
+import os
+import signal
+import subprocess
+import sys
+import time
+
+
+def warm_helper() -> str:
+    return os.path.expanduser("~/.local/bin/vicinae-sudo-password-warm")
+
+
+def kill_stale_prompts() -> None:
+    """Kill leftover prompts. Match only the python interpreter running this script."""
+    my_pid = os.getpid()
+    script = os.path.realpath(__file__)
+    try:
+        # /proc scan — avoid pkill -f matching unrelated shells/agents.
+        for name in os.listdir("/proc"):
+            if not name.isdigit():
+                continue
+            pid = int(name)
+            if pid == my_pid:
+                continue
+            try:
+                with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                    cmdline = fh.read().replace(b"\0", b" ").decode(errors="replace")
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            if "vicinae-sudo-prompt" in cmdline and "python" in cmdline:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+        time.sleep(0.15)
+    except Exception:
+        pass
+
+
+def log(msg: str) -> None:
+    try:
+        path = os.path.join(
+            os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"),
+            "vicinae-topgrade-prompt.log",
+        )
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%H:%M:%S')} {msg}\n")
+    except Exception:
+        pass
+
+
+def clear_sudo_cache() -> None:
+    subprocess.run(["/usr/bin/sudo", "-K"], capture_output=True)
+    subprocess.run(["/usr/bin/sudo", "-k"], capture_output=True)
+
+
+def try_warm(password: str) -> tuple[bool, str]:
+    helper = warm_helper()
+    if not os.path.isfile(helper):
+        return False, f"Missing {helper} — re-run install-runner.sh"
+
+    proc = subprocess.run(
+        [helper],
+        input=(password + "\n").encode(),
+        capture_output=True,
+        env={
+            **os.environ,
+            "VICINAE_SUDO_PASS": "",
+        },
+    )
+    if proc.returncode == 0:
+        return True, ""
+
+    err = (proc.stderr or b"").decode(errors="replace").strip()
+    low = err.lower()
+    if "incorrect password" in low or "sorry, try again" in low:
+        return False, "Incorrect password — try again"
+    if "locked" in low or "faillock" in low:
+        return False, (
+            "Account temporarily locked (faillock). Wait a few minutes, or: "
+            "sudo faillock --user $USER --reset"
+        )
+    if "no password" in low:
+        return False, "Password was empty — try again"
+    return False, (err.splitlines()[-1] if err else "Authentication failed")
+
+
+def sudo_cached() -> bool:
+    return (
+        subprocess.run(
+            ["/usr/bin/sudo", "-n", "-v"],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+def focus_window_hypr() -> None:
+    """Try to raise the dialog above Vicinae's layer-shell window."""
+    try:
+        subprocess.run(
+            [
+                "/usr/bin/hyprctl",
+                "dispatch",
+                "focuswindow",
+                "title:Authorize Topgrade",
+            ],
+            capture_output=True,
+            timeout=2,
+        )
+    except Exception:
+        pass
+
+
+def prompt_adw() -> int:
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    gi.require_version("Gio", "2.0")
+    from gi.repository import Adw, Gio, GLib, Gtk
+
+    user = os.environ.get("USER") or os.getlogin()
+    result = {"ok": False}
+
+    # NON_UNIQUE: a leftover UNIQUE instance was swallowing new launches.
+    app = Adw.Application(
+        application_id="local.vicinae.topgrade-sudo",
+        flags=Gio.ApplicationFlags.NON_UNIQUE,
+    )
+
+    def on_activate(application: Adw.Application) -> None:
+        log("activate")
+        win = Adw.ApplicationWindow(application=application)
+        win.set_title("Authorize Topgrade")
+        win.set_default_size(460, 220)
+        win.set_resizable(False)
+
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        header.set_title_widget(
+            Adw.WindowTitle(
+                title="Authorize Topgrade",
+                subtitle=f"sudo password for {user}",
+            )
+        )
+        toolbar.add_top_bar(header)
+
+        box = Gtk.Box(
+            orientation=Gtk.Orientation.VERTICAL,
+            spacing=12,
+            margin_top=16,
+            margin_bottom=16,
+            margin_start=20,
+            margin_end=20,
+        )
+
+        status = Gtk.Label(
+            label="Enter your sudo password, then press Enter",
+            xalign=0,
+            wrap=True,
+        )
+        status.add_css_class("dim-label")
+
+        password = Gtk.Entry(
+            visibility=False,
+            hexpand=True,
+            activates_default=True,
+            placeholder_text="Sudo password",
+        )
+
+        error = Gtk.Label(label="", xalign=0, wrap=True)
+        error.add_css_class("error")
+        error.set_visible(False)
+
+        buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        buttons.set_halign(Gtk.Align.END)
+        cancel_btn = Gtk.Button(label="Cancel")
+        ok_btn = Gtk.Button(label="Authorize")
+        ok_btn.add_css_class("suggested-action")
+        buttons.append(cancel_btn)
+        buttons.append(ok_btn)
+
+        box.append(status)
+        box.append(password)
+        box.append(error)
+        box.append(buttons)
+        toolbar.set_content(box)
+        win.set_content(toolbar)
+
+        def set_error(msg: str) -> None:
+            error.set_label(msg)
+            error.set_visible(bool(msg))
+
+        def finish_cancel(*_args: object) -> None:
+            result["ok"] = False
+            application.quit()
+
+        def do_submit(*_args: object) -> None:
+            text = password.get_text()
+            if not text:
+                set_error("Password required")
+                password.grab_focus()
+                return
+
+            ok_btn.set_sensitive(False)
+            cancel_btn.set_sensitive(False)
+            password.set_sensitive(False)
+            status.set_label("Checking password with sudo…")
+            set_error("")
+
+            ctx = GLib.MainContext.default()
+            while ctx.pending():
+                ctx.iteration(False)
+
+            ok, msg = try_warm(text)
+            if ok or sudo_cached():
+                result["ok"] = True
+                application.quit()
+                return
+
+            status.set_label("Enter your sudo password, then press Enter")
+            set_error(msg)
+            password.select_region(0, -1)
+            password.set_sensitive(True)
+            ok_btn.set_sensitive(True)
+            cancel_btn.set_sensitive(True)
+            password.grab_focus()
+
+        cancel_btn.connect("clicked", finish_cancel)
+        ok_btn.connect("clicked", do_submit)
+        password.connect("activate", do_submit)
+        win.connect("close-request", lambda *_: (finish_cancel() or False))
+
+        win.present()
+        try:
+            win.set_default_widget(ok_btn)
+        except Exception:
+            pass
+        password.grab_focus()
+        log("window presented")
+        GLib.timeout_add(120, focus_window_hypr)
+
+    app.connect("activate", on_activate)
+    app.run([])
+    return 0 if result["ok"] else 1
+
+
+def main() -> int:
+    log(f"start pid={os.getpid()} wayland={os.environ.get('WAYLAND_DISPLAY')} display={os.environ.get('DISPLAY')}")
+    if not (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+        print("vicinae-sudo-prompt: no display", file=sys.stderr)
+        log("no display")
+        return 2
+
+    kill_stale_prompts()
+    clear_sudo_cache()
+    log("cleared sudo cache, launching adw")
+
+    try:
+        code = prompt_adw()
+        log(f"adw finished code={code}")
+        return code
+    except Exception as err:
+        print(f"vicinae-sudo-prompt: {err}", file=sys.stderr)
+        log(f"adw exception {err!r}")
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

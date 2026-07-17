@@ -1,0 +1,7 @@
+#!/bin/sh
+# Askpass helper for Vicinae Topgrade (password fallback after fingerprint).
+# Reads password from VICINAE_SUDO_PASS; never logs it.
+if [ -z "${VICINAE_SUDO_PASS+x}" ]; then
+  exit 1
+fi
+printf '%s\n' "$VICINAE_SUDO_PASS"

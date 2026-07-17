@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+# Single-instance Topgrade runner for the Vicinae Topgrade extension.
+set -euo pipefail
+
+RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vicinae-topgrade"
+mkdir -p "$RUNTIME"
+
+LOCK="$RUNTIME/lock"
+STATUS="$RUNTIME/status.json"
+LOG="$RUNTIME/log.txt"
+RAW="$RUNTIME/raw.log"
+STEPS="$RUNTIME/steps.json"
+PIDFILE="$RUNTIME/pid"
+ACTIVITY="$RUNTIME/activity.txt"
+
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  echo "vicinae-topgrade: another run is already active" >&2
+  exit 75
+fi
+
+write_status() {
+  local state=$1
+  local current=${2:-}
+  local exit_code=${3:-}
+  local error=${4:-}
+  local pid=${5:-}
+  python3 - "$STATUS" "$state" "$current" "$exit_code" "$error" "$pid" "$STEPS" "$LOG" "$ACTIVITY" <<'PY'
+import json, os, sys, time
+path, state, current, exit_code, error, pid, steps_path, log_path, activity_path = sys.argv[1:10]
+steps = []
+if os.path.exists(steps_path):
+    try:
+        with open(steps_path) as f:
+            steps = json.load(f)
+    except Exception:
+        steps = []
+activity = None
+if os.path.exists(activity_path):
+    try:
+        activity = open(activity_path).read().strip() or None
+    except Exception:
+        activity = None
+started = None
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            prev = json.load(f)
+            started = prev.get("startedAt")
+    except Exception:
+        pass
+if started is None:
+    started = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+if not str(pid).isdigit() and os.path.exists(os.path.join(os.path.dirname(path), "pid")):
+    try:
+        pid = open(os.path.join(os.path.dirname(path), "pid")).read().strip()
+    except Exception:
+        pass
+payload = {
+    "state": state,
+    "pid": int(pid) if str(pid).isdigit() else None,
+    "startedAt": started,
+    "currentStep": current or None,
+    "activity": activity,
+    "steps": steps,
+    "exitCode": int(exit_code) if str(exit_code).lstrip("-").isdigit() else None,
+    "error": error or None,
+    "logPath": log_path,
+}
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(payload, f)
+    f.write("\n")
+os.replace(tmp, path)
+PY
+}
+
+mark_step() {
+  local name=$1
+  python3 - "$STEPS" "$name" <<'PY'
+import json, os, sys, time
+path, name = sys.argv[1:3]
+steps = []
+if os.path.exists(path):
+    try:
+        with open(path) as f:
+            steps = json.load(f)
+    except Exception:
+        steps = []
+now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+for s in steps:
+    if s.get("status") == "running":
+        s["status"] = "ok"
+        s["endedAt"] = now
+steps.append({"name": name, "status": "running", "startedAt": now})
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(steps, f)
+os.replace(tmp, path)
+PY
+}
+
+finish_steps() {
+  local final=$1
+  python3 - "$STEPS" "$final" <<'PY'
+import json, os, sys, time
+path, final = sys.argv[1:3]
+if not os.path.exists(path):
+    raise SystemExit(0)
+with open(path) as f:
+    steps = json.load(f)
+now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+for s in steps:
+    if s.get("status") == "running":
+        if final == "succeeded":
+            s["status"] = "ok"
+        elif final in ("failed", "cancelled"):
+            s["status"] = "failed"
+        else:
+            s["status"] = "ok"
+        s["endedAt"] = now
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(steps, f)
+os.replace(tmp, path)
+PY
+}
+
+# Byte-wise parser: handles \\r progress bars and \\n lines; updates activity + log.
+parse_loop() {
+  python3 - "$RAW" "$LOG" "$ACTIVITY" "$STEPS" "$STATUS" "$PIDFILE" <<'PY'
+import json, os, re, sys, time
+
+raw_path, log_path, activity_path, steps_path, status_path, pid_path = sys.argv[1:7]
+step_re = re.compile(r".* - (.+?) ――")
+ansi_re = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+def now():
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+def read_pid():
+    try:
+        return int(open(pid_path).read().strip())
+    except Exception:
+        return None
+
+def load_steps():
+    if not os.path.exists(steps_path):
+        return []
+    try:
+        return json.load(open(steps_path))
+    except Exception:
+        return []
+
+def save_steps(steps):
+    tmp = steps_path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(steps, f)
+    os.replace(tmp, steps_path)
+
+def mark_step(name):
+    steps = load_steps()
+    t = now()
+    for s in steps:
+        if s.get("status") == "running":
+            s["status"] = "ok"
+            s["endedAt"] = t
+    steps.append({"name": name, "status": "running", "startedAt": t})
+    save_steps(steps)
+    return steps
+
+def write_status(state, current, activity, steps):
+    started = None
+    if os.path.exists(status_path):
+        try:
+            started = json.load(open(status_path)).get("startedAt")
+        except Exception:
+            pass
+    if not started:
+        started = now()
+    payload = {
+        "state": state,
+        "pid": read_pid(),
+        "startedAt": started,
+        "currentStep": current,
+        "activity": activity,
+        "steps": steps,
+        "exitCode": None,
+        "error": None,
+        "logPath": log_path,
+    }
+    tmp = status_path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(payload, f)
+        f.write("\n")
+    os.replace(tmp, status_path)
+
+def set_activity(text):
+    text = ansi_re.sub("", text).strip()
+    if not text:
+        return
+    with open(activity_path, "w") as f:
+        f.write(text[:500])
+        f.write("\n")
+
+def append_log(text):
+    text = ansi_re.sub("", text).rstrip("\n")
+    if not text.strip():
+        return
+    with open(log_path, "a") as f:
+        f.write(text)
+        f.write("\n")
+
+# Wait for raw file
+for _ in range(100):
+    if os.path.exists(raw_path):
+        break
+    time.sleep(0.05)
+
+current_step = None
+steps = load_steps()
+pos = 0
+buf = ""
+
+while True:
+    try:
+        size = os.path.getsize(raw_path)
+    except FileNotFoundError:
+        time.sleep(0.1)
+        continue
+
+    if size < pos:
+        pos = 0  # truncated
+
+    if size > pos:
+        with open(raw_path, "rb") as f:
+            f.seek(pos)
+            chunk = f.read()
+            pos = f.tell()
+        buf += chunk.decode("utf-8", errors="replace")
+
+        while True:
+            # Prefer newline; else carriage-return progress update
+            n = buf.find("\n")
+            r = buf.find("\r")
+            if n == -1 and r == -1:
+                break
+            if n != -1 and (r == -1 or n < r):
+                line, buf = buf[:n], buf[n + 1 :]
+                line = line.rstrip("\r")
+                clean = ansi_re.sub("", line)
+                append_log(clean)
+                set_activity(clean)
+                m = step_re.search(clean)
+                if m:
+                    name = m.group(1).strip()
+                    if name and name != "Summary":
+                        current_step = name
+                        steps = mark_step(name)
+                write_status("running", current_step, clean[-200:], steps)
+            else:
+                # \\r progress fragment (pacman/curl style bars)
+                frag, buf = buf[:r], buf[r + 1 :]
+                clean = ansi_re.sub("", frag).strip()
+                if clean:
+                    set_activity(clean)
+                    write_status("running", current_step, clean[-200:], steps)
+    else:
+        # idle: keep status fresh so UI feels live
+        activity = None
+        if os.path.exists(activity_path):
+            activity = open(activity_path).read().strip() or None
+        write_status("running", current_step, activity, steps)
+        time.sleep(0.2)
+PY
+}
+
+: >"$LOG"
+: >"$RAW"
+: >"$ACTIVITY"
+echo '[]' >"$STEPS"
+write_status "running" "" "" "" ""
+
+KEEPALIVE_PID=""
+PARSER_PID=""
+TOPGRADE_PID=""
+FINAL_STATE="failed"
+EXIT_CODE=1
+
+cleanup() {
+  if [[ -n "${KEEPALIVE_PID}" ]] && kill -0 "$KEEPALIVE_PID" 2>/dev/null; then
+    kill "$KEEPALIVE_PID" 2>/dev/null || true
+  fi
+  if [[ -n "${PARSER_PID}" ]] && kill -0 "$PARSER_PID" 2>/dev/null; then
+    kill "$PARSER_PID" 2>/dev/null || true
+  fi
+  finish_steps "$FINAL_STATE" || true
+  write_status "$FINAL_STATE" "" "$EXIT_CODE" "" "${TOPGRADE_PID:-}"
+  rm -f "$PIDFILE"
+}
+
+on_signal() {
+  FINAL_STATE="cancelled"
+  EXIT_CODE=130
+  if [[ -n "${TOPGRADE_PID}" ]] && kill -0 "$TOPGRADE_PID" 2>/dev/null; then
+    kill -TERM "$TOPGRADE_PID" 2>/dev/null || true
+    kill -TERM "-$TOPGRADE_PID" 2>/dev/null || true
+  fi
+  cleanup
+  exit 130
+}
+
+trap 'on_signal' INT TERM
+
+(
+  while true; do
+    /usr/bin/sudo -n -v 2>/dev/null || true
+    sleep 60
+  done
+) &
+KEEPALIVE_PID=$!
+
+parse_loop &
+PARSER_PID=$!
+
+set +e
+# Line-buffer child tools when possible so progress shows sooner
+if command -v stdbuf >/dev/null 2>&1; then
+  stdbuf -oL -eL topgrade -y -c --no-tmux --no-ask-retry >>"$RAW" 2>&1 &
+else
+  topgrade -y -c --no-tmux --no-ask-retry >>"$RAW" 2>&1 &
+fi
+TOPGRADE_PID=$!
+echo "$TOPGRADE_PID" >"$PIDFILE"
+write_status "running" "" "" "" "$TOPGRADE_PID"
+
+wait "$TOPGRADE_PID"
+EXIT_CODE=$?
+set -e
+
+sleep 0.5
+
+if [[ $EXIT_CODE -eq 0 ]]; then
+  FINAL_STATE="succeeded"
+elif [[ $EXIT_CODE -eq 130 || $EXIT_CODE -eq 143 ]]; then
+  FINAL_STATE="cancelled"
+else
+  FINAL_STATE="failed"
+fi
+
+cleanup
+exit "$EXIT_CODE"

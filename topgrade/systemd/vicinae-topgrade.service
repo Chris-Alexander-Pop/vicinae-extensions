@@ -1,0 +1,16 @@
+[Unit]
+Description=Vicinae Topgrade background runner
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/vicinae-topgrade-run
+WorkingDirectory=%h
+# Only one at a time (script also flocks)
+Restart=no
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=60
+# Inherit user session env for yay/npm/etc.
+PassEnvironment=PATH HOME XDG_RUNTIME_DIR XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME WAYLAND_DISPLAY DBUS_SESSION_BUS_ADDRESS
+
+[Install]
+WantedBy=default.target
