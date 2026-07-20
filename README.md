@@ -7,6 +7,7 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | Extension | Command(s) | Notes |
 |---|---|---|
 | [`brightness/`](brightness/) | Set Brightness | `brightnessctl` |
+| [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | `bluetoothctl` + `rfkill`; live On/Off subtitle (10s refresh) |
 | [`packages/`](packages/) | Packages | Pacman + AUR: browse / search / install / update / uninstall + live log |
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles + `renice`/`ionice` via helper |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live step/log tracker |
