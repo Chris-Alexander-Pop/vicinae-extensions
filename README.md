@@ -12,7 +12,7 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | [`packages/`](packages/) | Packages | Pacman + AUR: browse / search / install / update / uninstall + live log |
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles + `renice`/`ionice` via helper |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live step/log tracker |
-| [`vpn/`](vpn/) | VPN, VPN Status | Home OpenVPN + `home.ovpn`, Surfshark `ca-tor`, Campus OpenConnect + Duo `push` (sudoers helper) |
+| [`vpn/`](vpn/) | VPN, VPN Status | Dynamic registry: auto NM vpn/wireguard + user OpenVPN/OpenConnect; multi-up, priority, app allowlists |
 
 ## Requirements
 
@@ -71,16 +71,19 @@ Search **Packages** in Vicinae. Use the mode dropdown for **Installed** vs **Sea
 
 ### VPN
 
-Profiles: Home (OpenVPN), Surfshark (NetworkManager WireGuard), Campus (OpenConnect + Duo `push`). Privileged ops go through `/usr/local/bin/vicinae-vpn` (sudoers).
+Auto-lists NetworkManager `vpn` / `wireguard` connections and lets you add OpenVPN (`.ovpn`) or OpenConnect entries. Multiple tunnels can be up at once:
 
-Place the home OpenVPN config at `~/.config/vicinae/vpn/home.ovpn` (or set `VICINAE_HOME_OVPN`). Secrets live in the user keyring via `secret-tool` (`application=vicinae` by default — change in extension preferences if needed).
+- **Priority** (higher wins) picks which *general* VPN owns the default route
+- **App allowlist** (optional) split-tunnels matching apps via cgroup/fwmark (use **Run shell via this VPN** or launch under the helper cgroup)
+
+Overlay metadata lives in `~/.config/vicinae/vpn/connections.json` (no secrets). Credentials use `secret-tool` (`application=vicinae` by default). Privileged ops: `/usr/local/bin/vicinae-vpn` (needs `jq`, `nft`).
 
 ```bash
-# one-time
+# one-time (re-run after helper updates)
 sudo bash vpn/scripts/install-permissions.sh
 cd vpn && npm install && npm run build
 ```
 
-Search **VPN** in Vicinae. Home/Campus prompt for credentials the first time. **VPN Status** refreshes the live subtitle every 10s.
+Search **VPN** in Vicinae. **VPN Status** refreshes the live subtitle every 10s.
 
 
