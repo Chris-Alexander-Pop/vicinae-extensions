@@ -7,11 +7,11 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | Extension | Command(s) | Notes |
 |---|---|---|
 | [`brightness/`](brightness/) | Set Brightness | `brightnessctl` |
-| [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | `bluetoothctl` + `rfkill`; live On/Off subtitle (10s refresh) |
+| [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | BlueZ D-Bus + `rfkill` for status (no `bluetoothctl` on poll); 30s refresh |
 | [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Runtime toggles via `hyprctl eval` (Lua): animations, touchscreen, blur, shadows, software cursors, TrackPoint |
 | [`packages/`](packages/) | Packages | Pacman + AUR: browse / search / install / update / uninstall + live log |
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles + `renice`/`ionice` via helper |
-| [`topgrade/`](topgrade/) | Topgrade | Background run + live step/log tracker |
+| [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + recent-run history |
 | [`vpn/`](vpn/) | VPN, VPN Status | Dynamic registry: auto NM vpn/wireguard + user OpenVPN/OpenConnect; multi-up, priority, app allowlists |
 
 ## Requirements
@@ -56,7 +56,7 @@ bash topgrade/scripts/install-runner.sh
 cd topgrade && npm install && npm run build
 ```
 
-Then search **Topgrade** in Vicinae, enter your sudo password once, and track progress (survives closing the launcher).
+Then search **Topgrade** in Vicinae, authorize sudo once, and track progress (survives closing the launcher). Failed runs appear under **Recent runs**; use **Retry Failed** to re-run only the failed steps (skips steps disabled in `topgrade.toml`).
 
 ### Installed packages
 

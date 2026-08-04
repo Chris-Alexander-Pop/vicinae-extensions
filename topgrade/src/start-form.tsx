@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Action,
   ActionPanel,
@@ -8,20 +8,66 @@ import {
   showToast,
   Toast,
 } from "@vicinae/api";
+import { authorizeAndRetryFailed } from "./retry-actions";
 import {
   authenticateAndStart,
+  canRetry,
+  readHistoryIndex,
   spawnPasswordPromptDetached,
   startTopgradeService,
   sudoCached,
   waitForPasswordPrompt,
+  type HistoryEntry,
+  type RunState,
 } from "./runner";
 
 type Props = {
   onStarted: () => void;
+  onOpenHistory: (id: string) => void;
 };
 
-export function StartForm({ onStarted }: Props) {
+function stateColor(state: RunState): Color {
+  switch (state) {
+    case "succeeded":
+      return Color.Green;
+    case "failed":
+      return Color.Red;
+    case "cancelled":
+      return Color.Orange;
+    default:
+      return Color.SecondaryText;
+  }
+}
+
+function formatWhen(iso: string | null): string {
+  if (!iso) return "";
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return iso;
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  const month = months[Number(m[2]) - 1] ?? m[2];
+  return `${month} ${Number(m[3])} ${m[4]}:${m[5]}`;
+}
+
+export function StartForm({ onStarted, onOpenHistory }: Props) {
   const [loading, setLoading] = useState(false);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    setHistory(readHistoryIndex().slice(0, 5));
+  }, []);
 
   const beginRun = async (mode: "fingerprint" | "password") => {
     setLoading(true);
@@ -33,7 +79,6 @@ export function StartForm({ onStarted }: Props) {
           message: "Enter your password in the Authorize Topgrade dialog",
         });
 
-        // Keep Vicinae open — dialog floats on top.
         const promptPid = spawnPasswordPromptDetached();
         const warmed = await waitForPasswordPrompt(promptPid);
         if (!warmed) {
@@ -75,6 +120,19 @@ export function StartForm({ onStarted }: Props) {
         title: incorrect ? "Incorrect password" : "Could not start Topgrade",
         message,
       });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const beginRetry = async (
+    failedSteps: string[],
+    mode: "fingerprint" | "password",
+  ) => {
+    setLoading(true);
+    try {
+      const ok = await authorizeAndRetryFailed(failedSteps, mode);
+      if (ok) onStarted();
     } finally {
       setLoading(false);
     }
@@ -128,6 +186,82 @@ export function StartForm({ onStarted }: Props) {
           }
         />
       </List.Section>
+
+      {history.length > 0 && (
+        <List.Section title="Recent runs">
+          {history.map((entry) => {
+            const failed = entry.failedSteps ?? [];
+            const when = formatWhen(entry.endedAt || entry.startedAt);
+            const retryable = entry.state === "failed" && canRetry(failed);
+            const subtitle =
+              failed.length > 0
+                ? `Failed: ${failed.slice(0, 3).join(", ")}${failed.length > 3 ? "…" : ""}`
+                : entry.state === "succeeded"
+                  ? `${entry.okCount}/${entry.stepCount} steps ok`
+                  : entry.state;
+            return (
+              <List.Item
+                key={entry.id}
+                title={`${when || entry.id} · ${entry.state}`}
+                subtitle={subtitle}
+                icon={{
+                  source:
+                    entry.state === "succeeded"
+                      ? Icon.Checkmark
+                      : entry.state === "cancelled"
+                        ? Icon.Stop
+                        : Icon.XMarkCircle,
+                  tintColor: stateColor(entry.state),
+                }}
+                accessories={[
+                  {
+                    tag: {
+                      value: entry.state,
+                      color: stateColor(entry.state),
+                    },
+                  },
+                ]}
+                actions={
+                  <ActionPanel>
+                    <Action
+                      title="View Run"
+                      icon={Icon.Eye}
+                      onAction={() => onOpenHistory(entry.id)}
+                    />
+                    {retryable && (
+                      <>
+                        <Action
+                          title="Retry Failed (Fingerprint)"
+                          icon={Icon.ArrowClockwise}
+                          shortcut={{ modifiers: ["ctrl", "shift"], key: "r" }}
+                          onAction={() =>
+                            void beginRetry(failed, "fingerprint")
+                          }
+                        />
+                        <Action
+                          title="Retry Failed (Password)…"
+                          icon={Icon.Key}
+                          onAction={() => void beginRetry(failed, "password")}
+                        />
+                      </>
+                    )}
+                    <Action
+                      title="Start Full Run (Fingerprint)"
+                      icon={Icon.Fingerprint}
+                      onAction={() => void beginRun("fingerprint")}
+                    />
+                    <Action
+                      title="Start Full Run (Password)…"
+                      icon={Icon.Key}
+                      onAction={() => void beginRun("password")}
+                    />
+                  </ActionPanel>
+                }
+              />
+            );
+          })}
+        </List.Section>
+      )}
     </List>
   );
 }

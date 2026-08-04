@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Detail } from "@vicinae/api";
-import { isRunInProgress, runnerInstalled } from "./runner";
+import { HistoryDetail } from "./history-detail";
+import {
+  isRunInProgress,
+  reconcileStaleStatus,
+  runnerInstalled,
+} from "./runner";
 import { StartForm } from "./start-form";
 import { Tracker } from "./tracker";
 
-type Mode = "loading" | "missing-runner" | "form" | "tracker";
+type Mode = "loading" | "missing-runner" | "form" | "tracker" | "history";
 
 export default function TopgradeCommand() {
   const [mode, setMode] = useState<Mode>("loading");
+  const [historyId, setHistoryId] = useState<string | null>(null);
 
   const resolve = useCallback(async () => {
     if (!runnerInstalled()) {
@@ -18,6 +24,7 @@ export default function TopgradeCommand() {
       setMode("tracker");
       return;
     }
+    await reconcileStaleStatus();
     setMode("form");
   }, []);
 
@@ -52,6 +59,25 @@ Then reopen **Topgrade**.`}
         onIdle={() => {
           setMode("form");
         }}
+        onRetryStarted={() => {
+          setMode("tracker");
+        }}
+      />
+    );
+  }
+
+  if (mode === "history" && historyId) {
+    return (
+      <HistoryDetail
+        runId={historyId}
+        onBack={() => {
+          setHistoryId(null);
+          setMode("form");
+        }}
+        onRetryStarted={() => {
+          setHistoryId(null);
+          setMode("tracker");
+        }}
       />
     );
   }
@@ -60,6 +86,10 @@ Then reopen **Topgrade**.`}
     <StartForm
       onStarted={() => {
         setMode("tracker");
+      }}
+      onOpenHistory={(id) => {
+        setHistoryId(id);
+        setMode("history");
       }}
     />
   );

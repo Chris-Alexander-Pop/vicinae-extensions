@@ -21,7 +21,7 @@
       "subtitle": "Bluetooth Off",
       "description": "Flip Bluetooth adapter power. Live On/Off shows as the command subtitle.",
       "mode": "no-view",
-      "interval": "10s",
+      "interval": "30s",
       "keywords": ["bt", "adapter", "power", "radio"]
     }
   ],

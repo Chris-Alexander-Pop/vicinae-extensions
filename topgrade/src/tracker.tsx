@@ -10,12 +10,15 @@ import {
 } from "@vicinae/api";
 import {
   cancelTopgrade,
+  canRetry,
+  collectFailedSteps,
   logPath,
   readLogLines,
   readStatus,
   type RunState,
   type TopgradeStatus,
 } from "./runner";
+import { authorizeAndRetryFailed } from "./retry-actions";
 
 const SHORTCUT_REFRESH = { modifiers: ["ctrl"] as const, key: "r" as const };
 const LOG_WINDOW = 100;
@@ -65,9 +68,10 @@ function stepIcon(status: string) {
 
 type Props = {
   onIdle?: () => void;
+  onRetryStarted?: () => void;
 };
 
-export function Tracker({ onIdle }: Props) {
+export function Tracker({ onIdle, onRetryStarted }: Props) {
   const [status, setStatus] = useState<TopgradeStatus | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -110,10 +114,29 @@ export function Tracker({ onIdle }: Props) {
     }
   };
 
+  const onRetry = async (mode: "fingerprint" | "password") => {
+    const failed = collectFailedSteps(status, lines.join("\n"));
+    setBusy(true);
+    try {
+      const ok = await authorizeAndRetryFailed(failed, mode);
+      if (ok) {
+        onRetryStarted?.();
+        refresh();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const state = status?.state ?? "idle";
   const running = state === "running";
   const steps = status?.steps ?? [];
   const activity = status?.activity?.trim();
+  const failedSteps = useMemo(
+    () => collectFailedSteps(status, lines.join("\n")),
+    [status, lines],
+  );
+  const retryable = !running && state === "failed" && canRetry(failedSteps);
 
   const maxFromEnd = Math.max(0, lines.length - 1);
 
@@ -230,6 +253,21 @@ export function Tracker({ onIdle }: Props) {
         title="Open Log File"
         target={status?.logPath || logPath()}
       />
+      {retryable && (
+        <>
+          <Action
+            title="Retry Failed (Fingerprint)"
+            icon={Icon.ArrowClockwise}
+            shortcut={{ modifiers: ["ctrl", "shift"], key: "r" }}
+            onAction={() => void onRetry("fingerprint")}
+          />
+          <Action
+            title="Retry Failed (Password)…"
+            icon={Icon.Key}
+            onAction={() => void onRetry("password")}
+          />
+        </>
+      )}
       {!running && onIdle && (
         <Action title="New Run" icon={Icon.Plus} onAction={onIdle} />
       )}
@@ -279,6 +317,19 @@ export function Tracker({ onIdle }: Props) {
             accessories={[{ tag: { value: "stop", color: Color.Red } }]}
             detail={<List.Item.Detail markdown={logMarkdown} />}
             actions={makeActions("cancel")}
+          />
+        </List.Section>
+      )}
+
+      {retryable && (
+        <List.Section title="Retry">
+          <List.Item
+            title="Retry Failed Steps"
+            subtitle={failedSteps.join(", ")}
+            icon={{ source: Icon.ArrowClockwise, tintColor: Color.Blue }}
+            accessories={[{ tag: { value: "retry", color: Color.Blue } }]}
+            detail={<List.Item.Detail markdown={logMarkdown} />}
+            actions={makeActions()}
           />
         </List.Section>
       )}

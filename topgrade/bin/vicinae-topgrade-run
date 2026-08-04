@@ -3,7 +3,9 @@
 set -euo pipefail
 
 RUNTIME="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/vicinae-topgrade"
-mkdir -p "$RUNTIME"
+HISTORY_ROOT="${XDG_DATA_HOME:-$HOME/.local/share}/vicinae-topgrade/history"
+HISTORY_MAX=8
+mkdir -p "$RUNTIME" "$HISTORY_ROOT"
 
 LOCK="$RUNTIME/lock"
 STATUS="$RUNTIME/status.json"
@@ -12,6 +14,9 @@ RAW="$RUNTIME/raw.log"
 STEPS="$RUNTIME/steps.json"
 PIDFILE="$RUNTIME/pid"
 ACTIVITY="$RUNTIME/activity.txt"
+DONE="$RUNTIME/done"
+RETRY="$RUNTIME/retry.json"
+RETRY_CONFIG="$RUNTIME/retry-config.toml"
 
 exec 9>"$LOCK"
 if ! flock -n 9; then
@@ -102,27 +107,169 @@ PY
 
 finish_steps() {
   local final=$1
-  python3 - "$STEPS" "$final" <<'PY'
-import json, os, sys, time
-path, final = sys.argv[1:3]
+  python3 - "$STEPS" "$final" "$LOG" <<'PY'
+import json, os, re, sys, time
+path, final, log_path = sys.argv[1:4]
 if not os.path.exists(path):
     raise SystemExit(0)
 with open(path) as f:
     steps = json.load(f)
 now = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+# Prefer Topgrade's own summary ("Foo: FAILED") over "whatever was current".
+summary_failed = set()
+if os.path.exists(log_path):
+    try:
+        text = open(log_path, errors="replace").read()
+        for m in re.finditer(r"^(.+?): FAILED\s*$", text, re.M):
+            summary_failed.add(m.group(1).strip())
+    except Exception:
+        pass
+
+# Normalize names for fuzzy match (Topgrade summary uses short labels)
+def norm(s: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+failed_norms = {norm(n) for n in summary_failed if n}
+
 for s in steps:
+    name = s.get("name") or ""
     if s.get("status") == "running":
-        if final == "succeeded":
-            s["status"] = "ok"
-        elif final in ("failed", "cancelled"):
+        # Last active step often succeeded even when an earlier step failed.
+        s["status"] = "failed" if (final in ("failed", "cancelled") and not summary_failed) else "ok"
+        if final == "cancelled":
             s["status"] = "failed"
-        else:
-            s["status"] = "ok"
         s["endedAt"] = now
+    if name and failed_norms and norm(name) in failed_norms:
+        s["status"] = "failed"
+        s.setdefault("endedAt", now)
+    # Also match summary labels that differ slightly ("Cursor Agent" vs step name)
+    for label in summary_failed:
+        if label and (label.lower() in name.lower() or name.lower() in label.lower()):
+            s["status"] = "failed"
+            s.setdefault("endedAt", now)
+
 tmp = path + ".tmp"
 with open(tmp, "w") as f:
     json.dump(steps, f)
 os.replace(tmp, path)
+PY
+}
+
+# Persist a completed run under XDG_DATA_HOME so the extension can show past results.
+archive_run() {
+  python3 - "$STATUS" "$LOG" "$STEPS" "$HISTORY_ROOT" "$HISTORY_MAX" <<'PY'
+import json, os, re, shutil, sys, time
+
+status_path, log_path, steps_path, history_root, history_max = sys.argv[1:6]
+history_max = int(history_max)
+os.makedirs(history_root, exist_ok=True)
+
+status = {}
+if os.path.exists(status_path):
+    try:
+        status = json.load(open(status_path))
+    except Exception:
+        status = {}
+
+steps = status.get("steps") or []
+if not steps and os.path.exists(steps_path):
+    try:
+        steps = json.load(open(steps_path))
+    except Exception:
+        steps = []
+
+failed = [s.get("name") for s in steps if s.get("status") == "failed" and s.get("name")]
+# Also scrape Topgrade's own summary lines ("Foo: FAILED")
+summary_failed = []
+if os.path.exists(log_path):
+    try:
+        text = open(log_path, errors="replace").read()
+        for m in re.finditer(r"^(.+?): FAILED\s*$", text, re.M):
+            name = m.group(1).strip()
+            if name and name not in summary_failed:
+                summary_failed.append(name)
+    except Exception:
+        pass
+
+# Prefer summary labels when step tracker missed a failure mid-run
+for name in summary_failed:
+    if name not in failed:
+        failed.append(name)
+
+started = status.get("startedAt") or time.strftime("%Y-%m-%dT%H:%M:%S%z")
+ended = time.strftime("%Y-%m-%dT%H:%M:%S%z")
+# Stable-ish id from start time
+safe = re.sub(r"[^0-9A-Za-z]+", "-", started).strip("-") or str(int(time.time()))
+run_id = safe
+run_dir = os.path.join(history_root, run_id)
+n = 1
+while os.path.exists(run_dir):
+    n += 1
+    run_dir = os.path.join(history_root, f"{run_id}-{n}")
+    run_id = f"{safe}-{n}"
+os.makedirs(run_dir, exist_ok=True)
+
+payload = {
+    "id": run_id,
+    "state": status.get("state") or "failed",
+    "startedAt": started,
+    "endedAt": ended,
+    "exitCode": status.get("exitCode"),
+    "error": status.get("error"),
+    "currentStep": status.get("currentStep"),
+    "failedSteps": failed,
+    "okCount": sum(1 for s in steps if s.get("status") == "ok"),
+    "failedCount": len(failed),
+    "stepCount": len(steps),
+    "steps": steps,
+    "logPath": os.path.join(run_dir, "log.txt"),
+}
+with open(os.path.join(run_dir, "meta.json"), "w") as f:
+    json.dump(payload, f, indent=2)
+    f.write("\n")
+with open(os.path.join(run_dir, "status.json"), "w") as f:
+    json.dump({**status, "steps": steps, "state": payload["state"]}, f)
+    f.write("\n")
+if os.path.exists(log_path):
+    shutil.copy2(log_path, os.path.join(run_dir, "log.txt"))
+else:
+    open(os.path.join(run_dir, "log.txt"), "w").close()
+
+index_path = os.path.join(history_root, "index.json")
+index = []
+if os.path.exists(index_path):
+    try:
+        index = json.load(open(index_path))
+        if not isinstance(index, list):
+            index = []
+    except Exception:
+        index = []
+index = [e for e in index if isinstance(e, dict) and e.get("id") != run_id]
+index.insert(0, {
+    "id": run_id,
+    "state": payload["state"],
+    "startedAt": started,
+    "endedAt": ended,
+    "exitCode": payload["exitCode"],
+    "failedSteps": failed,
+    "okCount": payload["okCount"],
+    "failedCount": payload["failedCount"],
+    "stepCount": payload["stepCount"],
+    "dir": run_dir,
+})
+# Prune oldest beyond HISTORY_MAX
+keep = index[:history_max]
+drop = index[history_max:]
+for e in drop:
+    d = e.get("dir")
+    if d and os.path.isdir(d):
+        shutil.rmtree(d, ignore_errors=True)
+with open(index_path + ".tmp", "w") as f:
+    json.dump(keep, f, indent=2)
+    f.write("\n")
+os.replace(index_path + ".tmp", index_path)
+print(run_id)
 PY
 }
 
@@ -221,8 +368,11 @@ current_step = None
 steps = load_steps()
 pos = 0
 buf = ""
+done_path = os.path.join(os.path.dirname(raw_path), "done")
 
 while True:
+    if os.path.exists(done_path):
+        break
     try:
         size = os.path.getsize(raw_path)
     except FileNotFoundError:
@@ -257,16 +407,19 @@ while True:
                     if name and name != "Summary":
                         current_step = name
                         steps = mark_step(name)
-                write_status("running", current_step, clean[-200:], steps)
+                if not os.path.exists(done_path):
+                    write_status("running", current_step, clean[-200:], steps)
             else:
                 # \\r progress fragment (pacman/curl style bars)
                 frag, buf = buf[:r], buf[r + 1 :]
                 clean = ansi_re.sub("", frag).strip()
-                if clean:
+                if clean and not os.path.exists(done_path):
                     set_activity(clean)
                     write_status("running", current_step, clean[-200:], steps)
     else:
         # idle: keep status fresh so UI feels live
+        if os.path.exists(done_path):
+            break
         activity = None
         if os.path.exists(activity_path):
             activity = open(activity_path).read().strip() or None
@@ -278,6 +431,7 @@ PY
 : >"$LOG"
 : >"$RAW"
 : >"$ACTIVITY"
+rm -f "$DONE"
 echo '[]' >"$STEPS"
 write_status "running" "" "" "" ""
 
@@ -288,15 +442,25 @@ FINAL_STATE="failed"
 EXIT_CODE=1
 
 cleanup() {
+  # Stop the live parser *before* writing the terminal status so it cannot
+  # race and leave status.json stuck on "running".
+  : >"$DONE"
   if [[ -n "${KEEPALIVE_PID}" ]] && kill -0 "$KEEPALIVE_PID" 2>/dev/null; then
     kill "$KEEPALIVE_PID" 2>/dev/null || true
   fi
   if [[ -n "${PARSER_PID}" ]] && kill -0 "$PARSER_PID" 2>/dev/null; then
     kill "$PARSER_PID" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      kill -0 "$PARSER_PID" 2>/dev/null || break
+      sleep 0.05
+    done
+    kill -KILL "$PARSER_PID" 2>/dev/null || true
+    wait "$PARSER_PID" 2>/dev/null || true
   fi
   finish_steps "$FINAL_STATE" || true
   write_status "$FINAL_STATE" "" "$EXIT_CODE" "" "${TOPGRADE_PID:-}"
-  rm -f "$PIDFILE"
+  archive_run >/dev/null || true
+  rm -f "$PIDFILE" "$DONE" "$RETRY_CONFIG"
 }
 
 on_signal() {
@@ -323,18 +487,118 @@ KEEPALIVE_PID=$!
 parse_loop &
 PARSER_PID=$!
 
-set +e
-# Line-buffer child tools when possible so progress shows sooner
-if command -v stdbuf >/dev/null 2>&1; then
-  stdbuf -oL -eL topgrade -y -c --no-tmux --no-ask-retry >>"$RAW" 2>&1 &
-else
-  topgrade -y -c --no-tmux --no-ask-retry >>"$RAW" 2>&1 &
-fi
-TOPGRADE_PID=$!
-echo "$TOPGRADE_PID" >"$PIDFILE"
-write_status "running" "" "" "" "$TOPGRADE_PID"
+# Optional retry-only plan written by the Vicinae extension before start.
+run_topgrade_or_retry() {
+  local -a tg_args=(-y --no-tmux --no-ask-retry)
+  local only_json="[]"
+  local shell_json="[]"
 
-wait "$TOPGRADE_PID"
+  if [[ -f "$RETRY" ]]; then
+    local retry_body
+    retry_body=$(cat "$RETRY")
+    rm -f "$RETRY"
+    only_json=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("only") or []))' <<<"$retry_body")
+    shell_json=$(python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin).get("shell") or []))' <<<"$retry_body")
+    {
+      echo "―― $(date '+%H:%M:%S') - Retry failed steps ――"
+      echo "Retry: builtins=$(python3 -c 'import json,sys; print(", ".join(json.load(sys.stdin)) or "(none)")' <<<"$only_json") shell=$(python3 -c 'import json,sys; print(", ".join(s.get("name","") for s in json.load(sys.stdin)) or "(none)")' <<<"$shell_json")"
+    } >>"$RAW"
+  fi
+
+  local ec=0
+
+  if [[ "$only_json" != "[]" ]]; then
+    python3 - "$RETRY_CONFIG" <<'PY'
+import os, re, sys
+out_path = sys.argv[1]
+cfg = os.path.expanduser("~/.config/topgrade.toml")
+text = open(cfg, encoding="utf-8", errors="replace").read() if os.path.exists(cfg) else ""
+skip = {"pre_commands", "post_commands", "commands"}
+lines = []
+section = None
+for raw in text.splitlines(keepends=True):
+    stripped = raw.strip()
+    hs = re.match(r"^\[([^\]]+)\]\s*$", stripped)
+    if hs:
+        section = hs.group(1).strip()
+        if section in skip:
+            continue
+        lines.append(raw if raw.endswith("\n") else raw + "\n")
+        continue
+    if section in skip:
+        continue
+    lines.append(raw if raw.endswith("\n") else raw + "\n")
+with open(out_path, "w", encoding="utf-8") as f:
+    f.write("".join(lines))
+    f.write("\n# vicinae retry: pre/post/commands stripped\n")
+PY
+    local -a only_args=()
+    while IFS= read -r step; do
+      [[ -n "$step" ]] && only_args+=(--only "$step")
+    done < <(python3 -c 'import json,sys; [print(s) for s in json.load(sys.stdin)]' <<<"$only_json")
+
+    if command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -oL -eL topgrade "${tg_args[@]}" --config "$RETRY_CONFIG" "${only_args[@]}" >>"$RAW" 2>&1 &
+    else
+      topgrade "${tg_args[@]}" --config "$RETRY_CONFIG" "${only_args[@]}" >>"$RAW" 2>&1 &
+    fi
+    TOPGRADE_PID=$!
+    echo "$TOPGRADE_PID" >"$PIDFILE"
+    write_status "running" "" "" "" "$TOPGRADE_PID"
+    wait "$TOPGRADE_PID"
+    ec=$?
+  fi
+
+  if [[ "$shell_json" != "[]" ]]; then
+    local shell_ec=0
+    while IFS= read -r row; do
+      [[ -z "$row" ]] && continue
+      local name cmd
+      name=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])' <<<"$row")
+      cmd=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["command"])' <<<"$row")
+      {
+        echo "―― $(date '+%H:%M:%S') - ${name} ――"
+        echo "$ ${cmd}"
+      } >>"$RAW"
+      # shellcheck disable=SC2086
+      if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -oL -eL bash -lc "$cmd" >>"$RAW" 2>&1 &
+      else
+        bash -lc "$cmd" >>"$RAW" 2>&1 &
+      fi
+      TOPGRADE_PID=$!
+      echo "$TOPGRADE_PID" >"$PIDFILE"
+      write_status "running" "$name" "" "" "$TOPGRADE_PID"
+      wait "$TOPGRADE_PID"
+      local step_ec=$?
+      if [[ $step_ec -ne 0 ]]; then
+        echo "ERROR: ${name} exited ${step_ec}" >>"$RAW"
+        shell_ec=$step_ec
+      fi
+    done < <(python3 -c 'import json,sys; [print(json.dumps(s)) for s in json.load(sys.stdin)]' <<<"$shell_json")
+    if [[ $shell_ec -ne 0 ]]; then
+      ec=$shell_ec
+    fi
+  fi
+
+  if [[ "$only_json" == "[]" && "$shell_json" == "[]" ]]; then
+    if command -v stdbuf >/dev/null 2>&1; then
+      stdbuf -oL -eL topgrade "${tg_args[@]}" -c >>"$RAW" 2>&1 &
+    else
+      topgrade "${tg_args[@]}" -c >>"$RAW" 2>&1 &
+    fi
+    TOPGRADE_PID=$!
+    echo "$TOPGRADE_PID" >"$PIDFILE"
+    write_status "running" "" "" "" "$TOPGRADE_PID"
+    wait "$TOPGRADE_PID"
+    ec=$?
+  fi
+
+  return "$ec"
+}
+
+set +e
+run_topgrade_or_retry
 EXIT_CODE=$?
 set -e
 
