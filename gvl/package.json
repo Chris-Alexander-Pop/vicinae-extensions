@@ -1,0 +1,99 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "gvl",
+  "title": "Govee Lights",
+  "description": "Control Govee LAN lights via gvl: power, color, temperature, modes, and sleep/wake schedules (local-only)",
+  "categories": [
+    "System"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "chris",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "keywords": [
+    "gvl",
+    "govee",
+    "lights",
+    "bulb",
+    "lamp"
+  ],
+  "commands": [
+    {
+      "name": "govee",
+      "title": "Govee Lights",
+      "subtitle": "Lights",
+      "description": "Power, brightness, color, temperature, animated modes, and sleep/wake schedules",
+      "mode": "view",
+      "keywords": [
+        "gvl",
+        "govee",
+        "lights",
+        "bulb",
+        "color",
+        "schedule"
+      ]
+    },
+    {
+      "name": "toggle",
+      "title": "Toggle Lights",
+      "subtitle": "Govee",
+      "description": "Toggle the Govee light. Live On/Off and color show as the command subtitle.",
+      "mode": "no-view",
+      "interval": "10s",
+      "keywords": [
+        "gvl",
+        "govee",
+        "toggle",
+        "power"
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "gvlPath",
+      "type": "textfield",
+      "title": "gvl path",
+      "description": "Optional path to the gvl binary (leave empty to use PATH, ~/go/bin/gvl, or ~/.local/bin/gvl)",
+      "default": "",
+      "required": false
+    },
+    {
+      "name": "stepPercent",
+      "type": "textfield",
+      "title": "Brightness step",
+      "description": "How much Ctrl+↑ / Ctrl+↓ adjusts brightness (percent)",
+      "default": "5",
+      "required": false
+    },
+    {
+      "name": "directLan",
+      "type": "checkbox",
+      "title": "Direct LAN",
+      "label": "Skip gvld (talk UDP on this machine)",
+      "description": "Passes --url local. Animated modes and schedules need gvld and will be disabled.",
+      "default": false,
+      "required": false
+    }
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

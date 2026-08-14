@@ -7,6 +7,7 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | Extension | Command(s) | Notes |
 |---|---|---|
 | [`brightness/`](brightness/) | Set Brightness | `brightnessctl` |
+| [`gvl/`](gvl/) | Govee Lights, Toggle Lights | `gvl` CLI (LAN lights + gvld schedules); live subtitle on Toggle Lights |
 | [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | BlueZ D-Bus + `rfkill` for status (no `bluetoothctl` on poll); 30s refresh |
 | [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Runtime toggles via `hyprctl eval` (Lua): animations, touchscreen, blur, shadows, software cursors, TrackPoint |
 | [`packages/`](packages/) | Packages | Pacman + AUR: browse / search / install / update / uninstall + live log |
@@ -85,5 +86,15 @@ cd vpn && npm install && npm run build
 ```
 
 Search **VPN** in Vicinae. **VPN Status** refreshes the live subtitle every 10s.
+
+### Govee lights
+
+Wraps the `gvl` CLI (Govee LAN + optional `gvld` schedules). Uses `~/.config/gvl/config.yaml`.
+
+```bash
+cd gvl && npm install && npm run build
+```
+
+Search **Govee Lights**. **Toggle Lights** shows live power/color as the command subtitle (polls every 10s). Ctrl+1–6 switch panels; Ctrl+T toggles; Ctrl+↑/↓ nudge brightness. On a schedule: Ctrl+K skips the next fire only; Ctrl+O edits that occurrence (time, count, look) without changing the recurring 07:00 / bedtime.
 
 
