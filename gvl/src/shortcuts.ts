@@ -52,6 +52,10 @@ export const SHORTCUT_NEXT: Keyboard.Shortcut = {
   modifiers: ["ctrl"],
   key: "o",
 };
+export const SHORTCUT_TEST: Keyboard.Shortcut = {
+  modifiers: ["ctrl"],
+  key: "p",
+};
 
 export const TABS: {
   id: HubTab;

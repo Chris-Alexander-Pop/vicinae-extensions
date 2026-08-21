@@ -22,6 +22,7 @@ import {
   SHORTCUT_NEXT,
   SHORTCUT_RUN,
   SHORTCUT_SKIP,
+  SHORTCUT_TEST,
 } from "./shortcuts";
 import {
   errMessage,
@@ -159,6 +160,28 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
   const runNow = async (e: ScheduleEntry) => {
     const ok = await ctx.run(["schedule", "run-now", e.id], `Running ${e.id}`);
     if (ok) await reload();
+  };
+
+  const testRamp = async (e: ScheduleEntry) => {
+    if (e.kind !== "wake" && e.kind !== "sleep") {
+      await showToast({
+        style: Toast.Style.Failure,
+        title: "Test Ramp is for wake/sleep",
+        message: `${e.id} is ${e.kind}`,
+      });
+      return;
+    }
+    const ok = await ctx.run(
+      ["schedule", "preview", e.id],
+      `Test ramp ${e.id}`,
+    );
+    if (ok) {
+      await showToast({
+        style: Toast.Style.Success,
+        title: `Test ramp ${e.id}`,
+        message: "Playing as fast as the bulb confirms. Stop to cancel.",
+      });
+    }
   };
 
   const setEnabled = async (e: ScheduleEntry, enabled: boolean) => {
@@ -301,6 +324,8 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
                 formatUpcoming(e.upcoming),
                 "skip",
                 "next",
+                "test",
+                "preview",
               ]}
               accessories={[
                 {
@@ -372,6 +397,12 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
                     icon={Icon.Play}
                     shortcut={SHORTCUT_RUN}
                     onAction={() => void runNow(e)}
+                  />
+                  <Action
+                    title="Test Ramp"
+                    icon={Icon.Gauge}
+                    shortcut={SHORTCUT_TEST}
+                    onAction={() => void testRamp(e)}
                   />
                   <Action
                     title="Skip Next"
