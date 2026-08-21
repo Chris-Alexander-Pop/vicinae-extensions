@@ -277,7 +277,7 @@ export function ScheduleForm({
         id="days"
         title="Days"
         value={daysMode}
-        onChange={setDaysMode}
+        onChange={(v) => setDaysMode(v as "everyday" | "weekdays" | "weekend" | "custom")}
       >
         <Form.Dropdown.Item title="Weekdays" value="weekdays" />
         <Form.Dropdown.Item title="Weekend" value="weekend" />
