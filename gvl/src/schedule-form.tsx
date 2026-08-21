@@ -26,6 +26,7 @@ type Values = {
   toTemp: string;
   toBrightness: string;
   endOff: boolean;
+  split: string;
 };
 
 function colorItems(extra?: string) {
@@ -124,6 +125,7 @@ export function ScheduleForm({
         toTemp: lookTemp(existing, "to"),
         toBrightness: String(existing.to?.brightness ?? (resolvedKind === "wake" ? 55 : 5)),
         endOff: existing.end_off ?? resolvedKind === "sleep",
+        split: existing.split_pct ? String(existing.split_pct) : "",
       }
     : {
         time: resolvedKind === "wake" ? "07:00" : "23:00",
@@ -141,6 +143,7 @@ export function ScheduleForm({
         toTemp: resolvedKind === "wake" ? "daylight" : "candle",
         toBrightness: resolvedKind === "wake" ? "55" : "5",
         endOff: true,
+        split: "",
       };
 
   const onSubmit = async (values: Values) => {
@@ -159,6 +162,18 @@ export function ScheduleForm({
         title: "Duration must be minutes > 0",
       });
       return;
+    }
+    const splitRaw = (values.split ?? "").trim();
+    let split = 0;
+    if (splitRaw) {
+      split = Number(splitRaw);
+      if (!Number.isInteger(split) || split < 1 || split > 99) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "Split must be 1–99 (or empty for auto)",
+        });
+        return;
+      }
     }
     const fromB = Number(values.fromBrightness);
     const toB = Number(values.toBrightness);
@@ -205,6 +220,8 @@ export function ScheduleForm({
       String(Math.round(fromB)),
       "--to-brightness",
       String(Math.round(toB)),
+      "--split",
+      String(split),
     ];
     if ((values.fromType || fromType) === "temp") {
       args.push("--from-temp", values.fromTemp || "neutral");
@@ -347,6 +364,13 @@ export function ScheduleForm({
         title="To brightness"
         defaultValue={defaults.toBrightness}
       />
+      <Form.TextField
+        id="split"
+        title="First phase %"
+        placeholder="auto"
+        defaultValue={defaults.split}
+      />
+      <Form.Description text="Share of the total time on the start look. 20 = 20% white (or colour on wake), 80% on the end look. Empty = automatic." />
       {resolvedKind === "sleep" ? (
         <Form.Checkbox
           id="endOff"

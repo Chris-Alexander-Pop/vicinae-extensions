@@ -42,6 +42,7 @@ export type ScheduleEntry = {
   from: ScheduleLook;
   to: ScheduleLook;
   end_off?: boolean;
+  split_pct?: number;
   mode?: string;
   last_fired?: string;
   next?: SchedulePatch[];

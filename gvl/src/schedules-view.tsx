@@ -55,6 +55,7 @@ function scheduleMarkdown(e: ScheduleEntry): string {
     nextFire ? `- **Next fire:** ${nextFire}${e.upcoming_note ? ` · ${e.upcoming_note}` : ""}` : "",
     `- **Days:** ${days}`,
     `- **Duration:** ${e.duration_min} min`,
+    e.split_pct ? `- **First phase:** ${e.split_pct}%` : "",
     `- **From:** ${formatLook(e.from)}`,
     `- **To:** ${formatLook(e.to)}`,
     e.end_off ? "- **End:** power off" : "",
@@ -374,6 +375,12 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
                         title="Duration"
                         text={`${e.duration_min} min`}
                       />
+                      {e.split_pct ? (
+                        <List.Item.Detail.Metadata.Label
+                          title="First phase"
+                          text={`${e.split_pct}%`}
+                        />
+                      ) : null}
                       <List.Item.Detail.Metadata.Separator />
                       <List.Item.Detail.Metadata.Label title="From" text={formatLook(e.from)} />
                       <List.Item.Detail.Metadata.Label title="To" text={formatLook(e.to)} />
