@@ -370,7 +370,7 @@ export function ScheduleForm({
         placeholder="auto"
         defaultValue={defaults.split}
       />
-      <Form.Description text="Share of the total time on the start look. 20 = 20% white (or colour on wake), 80% on the end look. Empty = automatic." />
+      <Form.Description text="Share of the total time on the start look. 20 = 20% white then 80% colour. Sleep colour phase is 100% → end brightness (RGB is dimmer than kelvin). Empty = automatic." />
       {resolvedKind === "sleep" ? (
         <Form.Checkbox
           id="endOff"
