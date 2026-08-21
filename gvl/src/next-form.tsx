@@ -1,4 +1,5 @@
 import { Action, ActionPanel, Form, Icon, showToast, Toast, useNavigation } from "@vicinae/api";
+import { useState } from "react";
 import { gvl } from "./gvl";
 import {
   NAMED_COLORS,
@@ -102,6 +103,9 @@ export function NextOccurrenceForm({
   const defaultTime = first?.at || clockFromIso(entry.upcoming) || entry.at;
   const defaultNextDay =
     first?.next_day ?? (entry.kind === "sleep" && defaultTime < entry.at);
+  const [action, setAction] = useState("move");
+  const [fromType, setFromType] = useState("keep");
+  const [toType, setToType] = useState("keep");
 
   const onSubmit = async (values: Values) => {
     const count = Math.round(Number(values.count));
@@ -156,8 +160,8 @@ export function NextOccurrenceForm({
           return;
         }
       }
-      const fromKeep = (values.fromType || "keep") === "keep";
-      const toKeep = (values.toType || "keep") === "keep";
+      const fromKeep = (values.fromType || fromType || "keep") === "keep";
+      const toKeep = (values.toType || toType || "keep") === "keep";
       const endKeep = (values.endOff || "keep") === "keep";
       if (!timeChanged && duration == null && fromKeep && toKeep && endKeep) {
         toast.style = Toast.Style.Failure;
@@ -181,7 +185,7 @@ export function NextOccurrenceForm({
           return;
         }
         args.push("--from-brightness", String(Math.round(fromB)));
-        if (values.fromType === "temp") {
+        if ((values.fromType || fromType) === "temp") {
           args.push("--from-temp", values.fromTemp || "neutral");
         } else {
           args.push("--from-color", values.fromColor || "blue");
@@ -195,7 +199,7 @@ export function NextOccurrenceForm({
           return;
         }
         args.push("--to-brightness", String(Math.round(toB)));
-        if (values.toType === "temp") {
+        if ((values.toType || toType) === "temp") {
           args.push("--to-temp", values.toTemp || "daylight");
         } else {
           args.push("--to-color", values.toColor || "red");
@@ -235,7 +239,12 @@ export function NextOccurrenceForm({
       <Form.Description
         text={`Recurring ${entry.kind} stays ${entry.at} ${entry.timezone}. This only changes the next fire${entry.upcoming ? ` (currently ${nextLabel})` : ""}.`}
       />
-      <Form.Dropdown id="action" title="Action" defaultValue="move">
+      <Form.Dropdown
+        id="action"
+        title="Action"
+        value={action}
+        onChange={setAction}
+      >
         <Form.Dropdown.Item title="Change time / look" value="move" />
         <Form.Dropdown.Item title="Skip (do not fire)" value="skip" />
       </Form.Dropdown>
@@ -276,39 +285,61 @@ export function NextOccurrenceForm({
         info="Empty keeps the recurring ramp length"
       />
       <Form.Separator />
-      <Form.Dropdown id="fromType" title="From look" defaultValue="keep">
+      <Form.Dropdown
+        id="fromType"
+        title="From look"
+        value={fromType}
+        onChange={setFromType}
+      >
         <Form.Dropdown.Item title="Keep recurring" value="keep" />
         <Form.Dropdown.Item title="Color" value="color" />
         <Form.Dropdown.Item title="Temperature" value="temp" />
       </Form.Dropdown>
-      <Form.Dropdown id="fromColor" title="From color" defaultValue={lookColor(entry, "from")}>
-        {colorItems(lookColor(entry, "from"))}
-      </Form.Dropdown>
-      <Form.Dropdown id="fromTemp" title="From temp" defaultValue={lookTemp(entry, "from")}>
-        {tempItems(lookTemp(entry, "from"))}
-      </Form.Dropdown>
-      <Form.TextField
-        id="fromBrightness"
-        title="From brightness"
-        defaultValue={String(entry.from?.brightness ?? 5)}
-      />
+      {fromType === "color" ? (
+        <Form.Dropdown id="fromColor" title="From color" defaultValue={lookColor(entry, "from")}>
+          {colorItems(lookColor(entry, "from"))}
+        </Form.Dropdown>
+      ) : null}
+      {fromType === "temp" ? (
+        <Form.Dropdown id="fromTemp" title="From temp" defaultValue={lookTemp(entry, "from")}>
+          {tempItems(lookTemp(entry, "from"))}
+        </Form.Dropdown>
+      ) : null}
+      {fromType === "keep" ? null : (
+        <Form.TextField
+          id="fromBrightness"
+          title="From brightness"
+          defaultValue={String(entry.from?.brightness ?? 5)}
+        />
+      )}
       <Form.Separator />
-      <Form.Dropdown id="toType" title="To look" defaultValue="keep">
+      <Form.Dropdown
+        id="toType"
+        title="To look"
+        value={toType}
+        onChange={setToType}
+      >
         <Form.Dropdown.Item title="Keep recurring" value="keep" />
         <Form.Dropdown.Item title="Color" value="color" />
         <Form.Dropdown.Item title="Temperature" value="temp" />
       </Form.Dropdown>
-      <Form.Dropdown id="toColor" title="To color" defaultValue={lookColor(entry, "to")}>
-        {colorItems(lookColor(entry, "to"))}
-      </Form.Dropdown>
-      <Form.Dropdown id="toTemp" title="To temp" defaultValue={lookTemp(entry, "to")}>
-        {tempItems(lookTemp(entry, "to"))}
-      </Form.Dropdown>
-      <Form.TextField
-        id="toBrightness"
-        title="To brightness"
-        defaultValue={String(entry.to?.brightness ?? 55)}
-      />
+      {toType === "color" ? (
+        <Form.Dropdown id="toColor" title="To color" defaultValue={lookColor(entry, "to")}>
+          {colorItems(lookColor(entry, "to"))}
+        </Form.Dropdown>
+      ) : null}
+      {toType === "temp" ? (
+        <Form.Dropdown id="toTemp" title="To temp" defaultValue={lookTemp(entry, "to")}>
+          {tempItems(lookTemp(entry, "to"))}
+        </Form.Dropdown>
+      ) : null}
+      {toType === "keep" ? null : (
+        <Form.TextField
+          id="toBrightness"
+          title="To brightness"
+          defaultValue={String(entry.to?.brightness ?? 55)}
+        />
+      )}
       {entry.kind === "sleep" ? (
         <Form.Dropdown id="endOff" title="End off" defaultValue="keep">
           <Form.Dropdown.Item title="Keep recurring" value="keep" />

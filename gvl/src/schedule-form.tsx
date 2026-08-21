@@ -1,4 +1,5 @@
 import { Action, ActionPanel, Form, Icon, showToast, Toast, useNavigation } from "@vicinae/api";
+import { useState } from "react";
 import { gvl } from "./gvl";
 import {
   NAMED_COLORS,
@@ -98,6 +99,14 @@ export function ScheduleForm({
     | "wake"
     | "sleep";
 
+  const [fromType, setFromType] = useState<"color" | "temp">(
+    existing ? lookType(existing, "from") : resolvedKind === "wake" ? "color" : "temp",
+  );
+  const [toType, setToType] = useState<"color" | "temp">(
+    existing ? lookType(existing, "to") : "temp",
+  );
+  const [daysMode, setDaysMode] = useState(existing ? daysPreset(existing.days) : "weekdays");
+
   const defaults = existing
     ? {
         time: existing.at,
@@ -168,7 +177,7 @@ export function ScheduleForm({
       return;
     }
 
-    let days = values.days || "weekdays";
+    let days = values.days || daysMode || "weekdays";
     if (days === "custom") {
       days = (values.daysCustom || "").trim();
       if (!days) {
@@ -197,12 +206,12 @@ export function ScheduleForm({
       "--to-brightness",
       String(Math.round(toB)),
     ];
-    if (values.fromType === "temp") {
+    if ((values.fromType || fromType) === "temp") {
       args.push("--from-temp", values.fromTemp || "neutral");
     } else {
       args.push("--from-color", values.fromColor || "blue");
     }
-    if (values.toType === "temp") {
+    if ((values.toType || toType) === "temp") {
       args.push("--to-temp", values.toTemp || "daylight");
     } else {
       args.push("--to-color", values.toColor || "red");
@@ -264,19 +273,25 @@ export function ScheduleForm({
         title="Duration (min)"
         defaultValue={defaults.duration}
       />
-      <Form.Dropdown id="days" title="Days" defaultValue={defaults.days}>
+      <Form.Dropdown
+        id="days"
+        title="Days"
+        value={daysMode}
+        onChange={setDaysMode}
+      >
         <Form.Dropdown.Item title="Weekdays" value="weekdays" />
         <Form.Dropdown.Item title="Weekend" value="weekend" />
         <Form.Dropdown.Item title="Everyday" value="everyday" />
         <Form.Dropdown.Item title="Custom" value="custom" />
       </Form.Dropdown>
-      <Form.TextField
-        id="daysCustom"
-        title="Custom days"
-        placeholder="mon,tue,wed"
-        defaultValue={defaults.daysCustom}
-        info="Used when Days is Custom"
-      />
+      {daysMode === "custom" ? (
+        <Form.TextField
+          id="daysCustom"
+          title="Custom days"
+          placeholder="mon,tue,wed"
+          defaultValue={defaults.daysCustom}
+        />
+      ) : null}
       <Form.TextField id="tz" title="Timezone" defaultValue={defaults.tz} />
       <Form.TextField
         id="id"
@@ -285,32 +300,48 @@ export function ScheduleForm({
         defaultValue={defaults.id}
       />
       <Form.Separator />
-      <Form.Dropdown id="fromType" title="From" defaultValue={defaults.fromType}>
+      <Form.Dropdown
+        id="fromType"
+        title="From"
+        value={fromType}
+        onChange={(v) => setFromType(v === "temp" ? "temp" : "color")}
+      >
         <Form.Dropdown.Item title="Color" value="color" />
         <Form.Dropdown.Item title="Temperature" value="temp" />
       </Form.Dropdown>
-      <Form.Dropdown id="fromColor" title="From color" defaultValue={defaults.fromColor}>
-        {colorItems(defaults.fromColor)}
-      </Form.Dropdown>
-      <Form.Dropdown id="fromTemp" title="From temp" defaultValue={defaults.fromTemp}>
-        {tempItems(defaults.fromTemp)}
-      </Form.Dropdown>
+      {fromType === "color" ? (
+        <Form.Dropdown id="fromColor" title="From color" defaultValue={defaults.fromColor}>
+          {colorItems(defaults.fromColor)}
+        </Form.Dropdown>
+      ) : (
+        <Form.Dropdown id="fromTemp" title="From temp" defaultValue={defaults.fromTemp}>
+          {tempItems(defaults.fromTemp)}
+        </Form.Dropdown>
+      )}
       <Form.TextField
         id="fromBrightness"
         title="From brightness"
         defaultValue={defaults.fromBrightness}
       />
       <Form.Separator />
-      <Form.Dropdown id="toType" title="To" defaultValue={defaults.toType}>
+      <Form.Dropdown
+        id="toType"
+        title="To"
+        value={toType}
+        onChange={(v) => setToType(v === "color" ? "color" : "temp")}
+      >
         <Form.Dropdown.Item title="Color" value="color" />
         <Form.Dropdown.Item title="Temperature" value="temp" />
       </Form.Dropdown>
-      <Form.Dropdown id="toColor" title="To color" defaultValue={defaults.toColor}>
-        {colorItems(defaults.toColor)}
-      </Form.Dropdown>
-      <Form.Dropdown id="toTemp" title="To temp" defaultValue={defaults.toTemp}>
-        {tempItems(defaults.toTemp)}
-      </Form.Dropdown>
+      {toType === "color" ? (
+        <Form.Dropdown id="toColor" title="To color" defaultValue={defaults.toColor}>
+          {colorItems(defaults.toColor)}
+        </Form.Dropdown>
+      ) : (
+        <Form.Dropdown id="toTemp" title="To temp" defaultValue={defaults.toTemp}>
+          {tempItems(defaults.toTemp)}
+        </Form.Dropdown>
+      )}
       <Form.TextField
         id="toBrightness"
         title="To brightness"
