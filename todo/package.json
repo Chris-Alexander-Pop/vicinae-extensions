@@ -1,0 +1,189 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "todo",
+  "title": "Todo",
+  "description": "Ordered task queue for serializing batch work (local-only)",
+  "categories": [
+    "Productivity"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "chris",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "commands": [
+    {
+      "name": "todo",
+      "title": "Todo",
+      "subtitle": "Queue",
+      "description": "Add, reorder, and check off an ordered task queue with priorities and reminders",
+      "mode": "view",
+      "keywords": [
+        "todo",
+        "task",
+        "queue",
+        "batch",
+        "reminder"
+      ]
+    },
+    {
+      "name": "remind",
+      "title": "Todo Reminders",
+      "subtitle": "Quiet",
+      "description": "Desktop notifications for due tasks. Background poll; run manually to ping immediately.",
+      "mode": "no-view",
+      "interval": "30s",
+      "keywords": [
+        "todo",
+        "reminder",
+        "notify",
+        "ping"
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "notificationsEnabled",
+      "type": "checkbox",
+      "title": "Notifications",
+      "label": "Send desktop notifications for due tasks",
+      "description": "When off, reminders are stored but never ping",
+      "default": true,
+      "required": false
+    },
+    {
+      "name": "bootGraceSeconds",
+      "type": "textfield",
+      "title": "Boot delay (seconds)",
+      "description": "After Vicinae starts (or a long gap), wait this long before firing reminders that were already due",
+      "default": "60",
+      "required": false
+    },
+    {
+      "name": "sessionGapMinutes",
+      "type": "textfield",
+      "title": "New session after (minutes)",
+      "description": "If the reminder poller was quiet this long, treat the next poll as a new boot/session",
+      "default": "5",
+      "required": false
+    },
+    {
+      "name": "nagMinutes",
+      "type": "textfield",
+      "title": "Re-notify every (minutes)",
+      "description": "0 = once per day (or once ever, for Once reminders). Otherwise ping again while still overdue",
+      "default": "0",
+      "required": false
+    },
+    {
+      "name": "minPriority",
+      "type": "dropdown",
+      "title": "Minimum priority to notify",
+      "description": "Skip reminders below this priority",
+      "default": "none",
+      "required": false,
+      "data": [
+        {
+          "title": "Any",
+          "value": "none"
+        },
+        {
+          "title": "Low+",
+          "value": "low"
+        },
+        {
+          "title": "Medium+",
+          "value": "medium"
+        },
+        {
+          "title": "High+",
+          "value": "high"
+        },
+        {
+          "title": "Urgent only",
+          "value": "urgent"
+        }
+      ]
+    },
+    {
+      "name": "defaultPriority",
+      "type": "dropdown",
+      "title": "Default priority",
+      "description": "Pre-selected when adding a task",
+      "default": "none",
+      "required": false,
+      "data": [
+        {
+          "title": "None",
+          "value": "none"
+        },
+        {
+          "title": "Low",
+          "value": "low"
+        },
+        {
+          "title": "Medium",
+          "value": "medium"
+        },
+        {
+          "title": "High",
+          "value": "high"
+        },
+        {
+          "title": "Urgent",
+          "value": "urgent"
+        }
+      ]
+    },
+    {
+      "name": "defaultReminderMode",
+      "type": "dropdown",
+      "title": "Default reminder",
+      "description": "Pre-selected when adding a task",
+      "default": "off",
+      "required": false,
+      "data": [
+        {
+          "title": "Off",
+          "value": "off"
+        },
+        {
+          "title": "Once (today)",
+          "value": "once"
+        },
+        {
+          "title": "Daily until done",
+          "value": "daily"
+        }
+      ]
+    },
+    {
+      "name": "defaultReminderTime",
+      "type": "textfield",
+      "title": "Default reminder time",
+      "description": "HH:MM (24-hour local) pre-filled on the add form",
+      "default": "09:00",
+      "required": false
+    }
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

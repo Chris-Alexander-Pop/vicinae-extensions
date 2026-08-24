@@ -13,7 +13,8 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | [`packages/`](packages/) | Packages | Pacman + AUR: browse / search / install / update / uninstall + live log |
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles + `renice`/`ionice` via helper |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + recent-run history |
-| [`vpn/`](vpn/) | VPN, VPN Status | Dynamic registry: auto NM vpn/wireguard + user OpenVPN/OpenConnect; multi-up, priority, app allowlists |
+| [`todo/`](todo/) | Todo, Todo Reminders | Ordered queue + priorities; desktop pings at HH:MM (`~/.config/vicinae/todo/todos.json`) |
+| [`vpn/`](vpn/) | VPN, VPN Status | Import `.conf`/`.ovpn`/OpenConnect profiles; auto NM vpn/wireguard; multi-up, priority, app allowlists |
 
 ## Requirements
 
@@ -72,10 +73,12 @@ Search **Packages** in Vicinae. Use the mode dropdown for **Installed** vs **Sea
 
 ### VPN
 
-Auto-lists NetworkManager `vpn` / `wireguard` connections and lets you add OpenVPN (`.ovpn`) or OpenConnect entries. Multiple tunnels can be up at once:
+**Import config file** (Ctrl+N) opens a WireGuard `.conf`, OpenVPN `.ovpn`/`.conf`, or OpenConnect XML/profile and adds it. WireGuard files are imported into NetworkManager; OpenVPN/OpenConnect keep a path to the file. Existing NetworkManager `vpn` / `wireguard` connections are listed automatically. Multiple tunnels can be up at once:
 
 - **Priority** (higher wins) picks which *general* VPN owns the default route
 - **App allowlist** (optional) split-tunnels matching apps via cgroup/fwmark (use **Run shell via this VPN** or launch under the helper cgroup)
+- **Connect on login** is off for imported NetworkManager profiles (WireGuard/OpenVPN). Toggle it per connection if you really want the tunnel at boot — full-tunnel home WG with a hostname endpoint races wifi/DNS and blackholes the internet until you bounce it
+- **Delete** (Ctrl+Backspace) disconnects and removes the connection; NetworkManager profiles are deleted, not just hidden
 
 Overlay metadata lives in `~/.config/vicinae/vpn/connections.json` (no secrets). Credentials use `secret-tool` (`application=vicinae` by default). Privileged ops: `/usr/local/bin/vicinae-vpn` (needs `jq`, `nft`).
 
@@ -96,5 +99,20 @@ cd gvl && npm install && npm run build
 ```
 
 Search **Govee Lights**. **Toggle Lights** shows live power/color as the command subtitle (polls every 10s). Ctrl+1–6 switch panels; Ctrl+T toggles; Ctrl+↑/↓ nudge brightness. On a schedule: Ctrl+K skips the next fire only; Ctrl+O edits that occurrence (time, count, look) without changing the recurring 07:00 / bedtime.
+
+### Todo
+
+Ordered local queue for batch work. Items live in `~/.config/vicinae/todo/todos.json`.
+
+```bash
+cd todo && npm install && npm run build
+```
+
+Search **Todo**. Ctrl+N adds; Enter / Ctrl+T checks off (unchecked items go to the bottom of the queue); Ctrl+E edits; Ctrl+↑ / Ctrl+↓ reorder within Queue or Done; Ctrl+Backspace deletes.
+
+On add/edit: set **priority** (queue sorts urgent → none, then manual order) and a **reminder** time (`HH:MM` local). Once = ping today; Daily = every day until done. If the time already passed when Vicinae starts, it waits the **boot delay** (default 60s) then pings.
+
+Background command **Todo Reminders** polls every 30s and uses `sendDesktopNotification`. Run it from search to ping immediately (skips boot delay). Knobs live in extension preferences (Notifications, boot delay, session gap, re-notify interval, min priority, add-form defaults). **Notification Settings** from the Todo list opens that pane.
+
 
 
