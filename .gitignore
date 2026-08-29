@@ -11,3 +11,5 @@
 # Build / install artifacts (vici installs under ~/.local/share/vicinae)
 *.log
 .npm/
+**/__pycache__/
+*.pyc

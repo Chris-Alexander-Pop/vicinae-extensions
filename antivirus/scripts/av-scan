@@ -1,0 +1,406 @@
+#!/usr/bin/env python3
+"""Home ClamAV scan with live progress.json (percent + ETA)."""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import signal
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HOME = Path(os.environ.get("HOME", str(Path.home()))).expanduser()
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "clamav"
+PROGRESS_PATH = STATE_DIR / "progress.json"
+PID_PATH = STATE_DIR / "scan.pid"
+FILELIST_PATH = STATE_DIR / "filelist.nul"
+CLAMD_SOCKET = Path("/run/clamav/clamd.ctl")
+
+SKIP_DIR_NAMES = {
+    "node_modules",
+    ".git",
+    ".cache",
+    "Trash",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".uv-cache",
+    "target",
+}
+
+SKIP_PREFIXES = [
+    HOME / "Android",
+    HOME / ".android",
+    HOME / ".local/share/Trash",
+    HOME / ".local/share/containers",
+    HOME / ".cache",
+    HOME / ".local/share/Steam",
+    HOME / ".steam",
+    HOME / ".local/share/umu",
+    HOME / ".local/share/lutris",
+    HOME / ".docker",
+    HOME / ".ollama",
+    HOME / ".gradle",
+    HOME / ".cargo",
+    HOME / ".rustup",
+    HOME / ".npm",
+    HOME / ".pub-cache",
+    HOME / ".wine",
+    HOME / ".local/share/flatpak",
+    HOME / ".local/share/uv",
+    HOME / ".m2",
+]
+
+BATCH_CLAMD = 1200
+BATCH_CLAMSCAN = 250
+CHILD: subprocess.Popen[bytes] | None = None
+STARTED = time.time()
+LOG: Path | None = None
+
+
+def log(msg: str) -> None:
+    line = msg if msg.endswith("\n") else msg + "\n"
+    sys.stdout.write(line)
+    sys.stdout.flush()
+    if LOG:
+        with LOG.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+
+
+def write_progress(**kwargs: object) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    payload = {
+        "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(STARTED)),
+        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)),
+        "elapsedSec": int(now - STARTED),
+        **kwargs,
+    }
+    tmp = PROGRESS_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(PROGRESS_PATH)
+
+
+def eta_sec(done: int, total: int, elapsed: float) -> int | None:
+    if done < 40 or elapsed < 20 or total <= 0 or done <= 0:
+        return None
+    rate = done / elapsed
+    if rate <= 0:
+        return None
+    return max(0, int((total - done) / rate))
+
+
+def skip_dir(path: Path) -> bool:
+    if path.name in SKIP_DIR_NAMES:
+        return True
+    s = str(path)
+    for prefix in SKIP_PREFIXES:
+        p = str(prefix)
+        if s == p or s.startswith(p + os.sep):
+            return True
+    return False
+
+
+def clamd_ready() -> bool:
+    if not CLAMD_SOCKET.is_socket():
+        return False
+    try:
+        subprocess.run(
+            ["/usr/bin/systemctl", "is-active", "--quiet", "clamav-daemon"],
+            check=True,
+            timeout=3,
+        )
+        return True
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return False
+
+
+def count_and_list(targets: list[Path], apply_excludes: bool) -> int:
+    total = 0
+    FILELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with FILELIST_PATH.open("wb") as out:
+        for target in targets:
+            if not target.exists():
+                log(f"skip missing target: {target}")
+                continue
+            if target.is_file():
+                out.write(os.fsencode(target) + b"\0")
+                total += 1
+                continue
+            for root, dirs, files in os.walk(target, followlinks=False):
+                root_p = Path(root)
+                if apply_excludes:
+                    dirs[:] = [
+                        d for d in dirs if not skip_dir(root_p / d)
+                    ]
+                for name in files:
+                    full = root_p / name
+                    try:
+                        st = full.lstat()
+                    except OSError:
+                        continue
+                    if not stat.S_ISREG(st.st_mode):
+                        continue
+                    out.write(os.fsencode(full) + b"\0")
+                    total += 1
+                    if total % 8000 == 0:
+                        write_progress(
+                            state="counting",
+                            total=None,
+                            done=total,
+                            percent=None,
+                            etaSec=None,
+                            infected=0,
+                            current=str(full),
+                            log=str(LOG) if LOG else None,
+                            message=f"Counting files… {total:,}",
+                        )
+    return total
+
+
+def iter_nul(path: Path):
+    with path.open("rb") as fh:
+        buf = b""
+        while True:
+            chunk = fh.read(1024 * 1024)
+            if not chunk:
+                break
+            buf += chunk
+            parts = buf.split(b"\0")
+            buf = parts.pop()
+            for p in parts:
+                if p:
+                    yield os.fsdecode(p)
+        if buf:
+            yield os.fsdecode(buf)
+
+
+def parse_found(text: str) -> list[str]:
+    hits = []
+    for line in text.splitlines():
+        if line.endswith(" FOUND") and "SCAN SUMMARY" not in line:
+            hits.append(line)
+    return hits
+
+
+def run_batch(paths: list[str], use_clamd: bool) -> tuple[int, str]:
+    global CHILD
+    if not paths:
+        return 0, ""
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        prefix="av-scan-batch-",
+        suffix=".txt",
+        delete=False,
+    ) as tmp:
+        for p in paths:
+            if "\n" in p:
+                continue
+            tmp.write(p + "\n")
+        batch_path = tmp.name
+    try:
+        if use_clamd:
+            cmd = [
+                "/usr/bin/clamdscan",
+                "--multiscan",
+                "--fdpass",
+                "--infected",
+                f"--file-list={batch_path}",
+            ]
+        else:
+            cmd = [
+                "/usr/bin/clamscan",
+                "--infected",
+                "--bytecode-timeout=120000",
+                "--max-filesize=4000M",
+                "--max-scansize=4000M",
+                f"--file-list={batch_path}",
+            ]
+        CHILD = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        out_b, _ = CHILD.communicate()
+        rc = CHILD.returncode or 0
+        CHILD = None
+        text = out_b.decode("utf-8", "replace")
+        return rc, text
+    finally:
+        try:
+            os.unlink(batch_path)
+        except OSError:
+            pass
+
+
+def shutdown(_signum: int, _frame: object) -> None:
+    log("scan cancelled")
+    if CHILD and CHILD.poll() is None:
+        CHILD.terminate()
+        try:
+            CHILD.wait(timeout=8)
+        except subprocess.TimeoutExpired:
+            CHILD.kill()
+    write_progress(
+        state="cancelled",
+        message="Scan cancelled",
+        percent=None,
+    )
+    try:
+        PID_PATH.unlink(missing_ok=True)
+    except OSError:
+        pass
+    sys.exit(130)
+
+
+def main() -> int:
+    global LOG, STARTED
+    parser = argparse.ArgumentParser(description="ClamAV home scan with progress")
+    parser.add_argument("targets", nargs="*", default=[str(HOME)])
+    parser.add_argument("--all", action="store_true", help="do not apply black-hole excludes")
+    parser.add_argument("--clamscan", action="store_true", help="force standalone clamscan")
+    args = parser.parse_args()
+
+    STARTED = time.time()
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    LOG = STATE_DIR / f"scan-{stamp}.log"
+    latest = STATE_DIR / "latest.log"
+    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+
+    targets = [Path(t).expanduser() for t in args.targets]
+    apply_excludes = not args.all
+    use_clamd = (not args.clamscan) and clamd_ready()
+
+    log(f"=== av-scan {time.strftime('%Y-%m-%dT%H:%M:%S')} ===")
+    log(f"targets: {' '.join(str(t) for t in targets)}")
+    log(f"excludes: {int(apply_excludes)}")
+    log(f"engine: {'clamdscan batched' if use_clamd else 'clamscan batched'}")
+    log(f"progress: {PROGRESS_PATH}")
+    log("")
+
+    write_progress(
+        state="counting",
+        total=None,
+        done=0,
+        percent=None,
+        etaSec=None,
+        infected=0,
+        current=None,
+        log=str(LOG),
+        message="Counting files…",
+    )
+
+    total = count_and_list(targets, apply_excludes)
+    log(f"files to scan: {total:,}")
+    write_progress(
+        state="scanning",
+        total=total,
+        done=0,
+        percent=0,
+        etaSec=None,
+        infected=0,
+        current=None,
+        log=str(LOG),
+        message=f"0 / {total:,} files",
+    )
+
+    batch_size = BATCH_CLAMD if use_clamd else BATCH_CLAMSCAN
+    done = 0
+    infected = 0
+    worst_rc = 0
+    batch: list[str] = []
+
+    def flush() -> None:
+        nonlocal done, infected, worst_rc, batch
+        if not batch:
+            return
+        current = batch[0]
+        rc, text = run_batch(batch, use_clamd)
+        if rc == 1:
+            worst_rc = max(worst_rc, 1)
+        elif rc not in (0, 1):
+            worst_rc = max(worst_rc, rc)
+        hits = parse_found(text)
+        if hits:
+            infected += len(hits)
+            for hit in hits:
+                log(hit)
+        done += len(batch)
+        elapsed = time.time() - STARTED
+        percent = round(100.0 * done / total, 1) if total else 100.0
+        write_progress(
+            state="scanning",
+            total=total,
+            done=done,
+            percent=percent,
+            etaSec=eta_sec(done, total, elapsed),
+            infected=infected,
+            current=current,
+            log=str(LOG),
+            message=f"{done:,} / {total:,} files",
+        )
+        batch = []
+
+    if total == 0:
+        write_progress(
+            state="done",
+            total=0,
+            done=0,
+            percent=100,
+            etaSec=0,
+            infected=0,
+            current=None,
+            log=str(LOG),
+            message="No files to scan",
+        )
+    else:
+        for path in iter_nul(FILELIST_PATH):
+            batch.append(path)
+            if len(batch) >= batch_size:
+                flush()
+        flush()
+
+    summary = (
+        f"\n----------- SCAN SUMMARY -----------\n"
+        f"Scanned files: {done}\n"
+        f"Infected files: {infected}\n"
+        f"Time: {int(time.time() - STARTED)}s\n"
+    )
+    log(summary)
+    write_progress(
+        state="done",
+        total=total,
+        done=done,
+        percent=100,
+        etaSec=0,
+        infected=infected,
+        current=None,
+        log=str(LOG),
+        message=f"Done · {infected} infected",
+    )
+    try:
+        if latest.exists() or latest.is_symlink():
+            latest.unlink()
+        latest.symlink_to(LOG)
+    except OSError:
+        pass
+    PID_PATH.unlink(missing_ok=True)
+    log(f"log: {LOG}")
+    return 1 if worst_rc == 1 else (0 if worst_rc == 0 else worst_rc)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

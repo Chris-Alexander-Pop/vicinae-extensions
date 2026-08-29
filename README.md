@@ -15,6 +15,7 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + recent-run history |
 | [`todo/`](todo/) | Todo, Todo Reminders | Ordered queue + priorities; desktop pings at HH:MM (`~/.config/vicinae/todo/todos.json`) |
 | [`vpn/`](vpn/) | VPN, VPN Status | Import `.conf`/`.ovpn`/OpenConnect profiles; auto NM vpn/wireguard; multi-up, priority, app allowlists |
+| [`antivirus/`](antivirus/) | Antivirus, Antivirus Status | ClamAV home scan (Fangfrisch extra sigs) + rkhunter; live subtitle |
 
 ## Requirements
 
@@ -89,6 +90,16 @@ cd vpn && npm install && npm run build
 ```
 
 Search **VPN** in Vicinae. **VPN Status** refreshes the live subtitle every 10s.
+
+### Antivirus
+
+Wraps the host ClamAV + Fangfrisch + rkhunter setup (`av-scan`, `av-update`, `clamd`). Home scans skip the trees that previously ran for a day (Android SDK, Trash, Podman, caches, Steam, …).
+
+```bash
+cd antivirus && npm install && npm run build
+```
+
+Search **Antivirus** in Vicinae. The Home scan row shows a live bar, percent, and ETA (file-count batches — ClamAV has no native progress). Ctrl+S starts a home scan; Ctrl+U updates signatures; Ctrl+K runs rkhunter. **Antivirus Status** shows `41% · ETA 26m` in root search.
 
 ### Govee lights
 
