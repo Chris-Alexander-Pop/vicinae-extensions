@@ -6,7 +6,8 @@
  */
 
 type ExtensionPreferences = {
-  
+  /** Notifications - Uses Vicinae notifications in addition to notify-send from av-scan */
+	"notificationsEnabled": boolean;
 }
 
 declare type Preferences = ExtensionPreferences

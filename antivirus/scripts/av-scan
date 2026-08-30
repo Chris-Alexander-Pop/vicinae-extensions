@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Home ClamAV scan with live progress.json (percent + ETA)."""
+"""ClamAV scan with progress, history, and resume after interrupt."""
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import signal
@@ -16,9 +17,11 @@ from pathlib import Path
 HOME = Path(os.environ.get("HOME", str(Path.home()))).expanduser()
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", HOME / ".local/state")) / "clamav"
 PROGRESS_PATH = STATE_DIR / "progress.json"
+HISTORY_PATH = STATE_DIR / "history.json"
 PID_PATH = STATE_DIR / "scan.pid"
 FILELIST_PATH = STATE_DIR / "filelist.nul"
 CLAMD_SOCKET = Path("/run/clamav/clamd.ctl")
+NOTIFY_STAMP = STATE_DIR / "notified.json"
 
 SKIP_DIR_NAMES = {
     "node_modules",
@@ -61,9 +64,25 @@ SKIP_PREFIXES = [
 
 BATCH_CLAMD = 1200
 BATCH_CLAMSCAN = 250
+MAX_HISTORY = 80
 CHILD: subprocess.Popen[bytes] | None = None
-STARTED = time.time()
 LOG: Path | None = None
+PROGRESS: dict = {}
+SESSION_START = time.time()
+ELAPSED_BASE = 0.0
+SCAN_SESSION_START: float | None = None
+SCAN_ELAPSED_BASE = 0.0
+FINISHED = False
+ACTIVE_FILELIST = FILELIST_PATH
+
+def wall_elapsed() -> int:
+    return int(ELAPSED_BASE + (time.time() - SESSION_START))
+
+
+def scan_elapsed() -> float:
+    if SCAN_SESSION_START is None:
+        return SCAN_ELAPSED_BASE
+    return SCAN_ELAPSED_BASE + (time.time() - SCAN_SESSION_START)
 
 
 def log(msg: str) -> None:
@@ -75,21 +94,85 @@ def log(msg: str) -> None:
             fh.write(line)
 
 
+def notify(title: str, body: str, urgency: str = "normal") -> None:
+    try:
+        subprocess.Popen(
+            [
+                "/usr/bin/notify-send",
+                "-u",
+                urgency,
+                "-a",
+                "Antivirus",
+                title,
+                body,
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except OSError:
+        pass
+
+
+def mark_notified() -> None:
+    key = f"{PROGRESS.get('id')}:{PROGRESS.get('state')}:{PROGRESS.get('infected', 0)}"
+    try:
+        NOTIFY_STAMP.write_text(json.dumps({"key": key}) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def write_progress(**kwargs: object) -> None:
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    now = time.time()
-    payload = {
-        "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(STARTED)),
-        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)),
-        "elapsedSec": int(now - STARTED),
-        **kwargs,
-    }
+    PROGRESS.update(kwargs)
+    PROGRESS["updatedAt"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    PROGRESS["elapsedSec"] = wall_elapsed()
+    PROGRESS["scanElapsedSec"] = int(scan_elapsed())
     tmp = PROGRESS_PATH.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.write_text(json.dumps(PROGRESS, indent=2) + "\n", encoding="utf-8")
     tmp.replace(PROGRESS_PATH)
 
 
-def eta_sec(done: int, total: int, elapsed: float) -> int | None:
+def upsert_history() -> None:
+    entry = {
+        "id": PROGRESS.get("id"),
+        "kind": PROGRESS.get("kind", "full"),
+        "targets": PROGRESS.get("targets", []),
+        "state": PROGRESS.get("state"),
+        "phase": PROGRESS.get("phase"),
+        "startedAt": PROGRESS.get("startedAt"),
+        "endedAt": PROGRESS.get("endedAt"),
+        "elapsedSec": PROGRESS.get("elapsedSec", 0),
+        "scanElapsedSec": PROGRESS.get("scanElapsedSec", 0),
+        "total": PROGRESS.get("total"),
+        "done": PROGRESS.get("done", 0),
+        "percent": PROGRESS.get("percent"),
+        "infected": PROGRESS.get("infected", 0),
+        "hits": PROGRESS.get("hits", []),
+        "log": PROGRESS.get("log"),
+        "filelist": PROGRESS.get("filelist"),
+        "applyExcludes": PROGRESS.get("applyExcludes", True),
+    }
+    items: list = []
+    if HISTORY_PATH.exists():
+        try:
+            items = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+            if not isinstance(items, list):
+                items = []
+        except json.JSONDecodeError:
+            items = []
+    rid = entry.get("id")
+    items = [i for i in items if i.get("id") != rid]
+    items.insert(0, entry)
+    kept = items[:MAX_HISTORY]
+    tmp = HISTORY_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(HISTORY_PATH)
+    keep_ids = {i.get("id") for i in kept if i.get("id")}
+    prune_filelists(keep_ids)
+
+
+def eta_sec(done: int, total: int) -> int | None:
+    elapsed = scan_elapsed()
     if done < 40 or elapsed < 20 or total <= 0 or done <= 0:
         return None
     rate = done / elapsed
@@ -123,10 +206,40 @@ def clamd_ready() -> bool:
         return False
 
 
-def count_and_list(targets: list[Path], apply_excludes: bool) -> int:
+def quick_targets() -> list[Path]:
+    cands = [HOME / "Downloads", HOME / "Desktop", Path("/tmp"), HOME / "tmp"]
+    return [p for p in cands if p.exists()]
+
+
+def filelist_for(run_id: str) -> Path:
+    return STATE_DIR / f"filelist-{run_id}.nul"
+
+
+def prune_filelists(keep_ids: set) -> None:
+    for p in STATE_DIR.glob("filelist-*.nul"):
+        rid = p.name[len("filelist-") : -len(".nul")]
+        if rid not in keep_ids:
+            try:
+                p.unlink()
+            except OSError:
+                pass
+
+
+def point_generic_filelist(dest: Path) -> None:
+    if dest == FILELIST_PATH:
+        return
+    try:
+        if FILELIST_PATH.exists() or FILELIST_PATH.is_symlink():
+            FILELIST_PATH.unlink()
+        FILELIST_PATH.symlink_to(dest)
+    except OSError:
+        pass
+
+
+def count_and_list(targets: list[Path], apply_excludes: bool, dest: Path) -> int:
     total = 0
-    FILELIST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with FILELIST_PATH.open("wb") as out:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with dest.open("wb") as out:
         for target in targets:
             if not target.exists():
                 log(f"skip missing target: {target}")
@@ -138,9 +251,7 @@ def count_and_list(targets: list[Path], apply_excludes: bool) -> int:
             for root, dirs, files in os.walk(target, followlinks=False):
                 root_p = Path(root)
                 if apply_excludes:
-                    dirs[:] = [
-                        d for d in dirs if not skip_dir(root_p / d)
-                    ]
+                    dirs[:] = [d for d in dirs if not skip_dir(root_p / d)]
                 for name in files:
                     full = root_p / name
                     try:
@@ -153,20 +264,20 @@ def count_and_list(targets: list[Path], apply_excludes: bool) -> int:
                     total += 1
                     if total % 8000 == 0:
                         write_progress(
+                            phase="counting",
                             state="counting",
                             total=None,
                             done=total,
                             percent=None,
                             etaSec=None,
-                            infected=0,
                             current=str(full),
-                            log=str(LOG) if LOG else None,
                             message=f"Counting files… {total:,}",
                         )
     return total
 
 
-def iter_nul(path: Path):
+def iter_nul(path: Path, skip: int = 0):
+    skipped = 0
     with path.open("rb") as fh:
         buf = b""
         while True:
@@ -177,18 +288,28 @@ def iter_nul(path: Path):
             parts = buf.split(b"\0")
             buf = parts.pop()
             for p in parts:
-                if p:
-                    yield os.fsdecode(p)
+                if not p:
+                    continue
+                if skipped < skip:
+                    skipped += 1
+                    continue
+                yield os.fsdecode(p)
         if buf:
+            if skipped < skip:
+                return
             yield os.fsdecode(buf)
 
 
-def parse_found(text: str) -> list[str]:
-    hits = []
-    for line in text.splitlines():
-        if line.endswith(" FOUND") and "SCAN SUMMARY" not in line:
-            hits.append(line)
-    return hits
+def parse_hit(line: str) -> dict | None:
+    if not line.endswith(" FOUND") or "SCAN SUMMARY" in line:
+        return None
+    if line.startswith("WARNING:"):
+        return None
+    body = line[: -len(" FOUND")]
+    if ": " not in body:
+        return None
+    path, signature = body.rsplit(": ", 1)
+    return {"path": path, "signature": signature}
 
 
 def run_batch(paths: list[str], use_clamd: bool) -> tuple[int, str]:
@@ -233,8 +354,7 @@ def run_batch(paths: list[str], use_clamd: bool) -> tuple[int, str]:
         out_b, _ = CHILD.communicate()
         rc = CHILD.returncode or 0
         CHILD = None
-        text = out_b.decode("utf-8", "replace")
-        return rc, text
+        return rc, out_b.decode("utf-8", "replace")
     finally:
         try:
             os.unlink(batch_path)
@@ -242,8 +362,12 @@ def run_batch(paths: list[str], use_clamd: bool) -> tuple[int, str]:
             pass
 
 
-def shutdown(_signum: int, _frame: object) -> None:
-    log("scan cancelled")
+def interrupt(reason: str) -> None:
+    global FINISHED
+    if FINISHED:
+        return
+    FINISHED = True
+    log(f"scan interrupted ({reason})")
     if CHILD and CHILD.poll() is None:
         CHILD.terminate()
         try:
@@ -251,76 +375,103 @@ def shutdown(_signum: int, _frame: object) -> None:
         except subprocess.TimeoutExpired:
             CHILD.kill()
     write_progress(
-        state="cancelled",
-        message="Scan cancelled",
-        percent=None,
+        state="interrupted",
+        endedAt=time.strftime("%Y-%m-%dT%H:%M:%S"),
+        message=f"Interrupted at {PROGRESS.get('done', 0):,} files — resume from Antivirus",
+        pid=None,
+    )
+    upsert_history()
+    mark_notified()
+    notify(
+        "Scan interrupted",
+        PROGRESS.get("message") or "Resume from Antivirus",
+        "normal",
     )
     try:
         PID_PATH.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def shutdown(_signum: int, _frame: object) -> None:
+    interrupt("signal")
     sys.exit(130)
 
 
-def main() -> int:
-    global LOG, STARTED
-    parser = argparse.ArgumentParser(description="ClamAV home scan with progress")
-    parser.add_argument("targets", nargs="*", default=[str(HOME)])
-    parser.add_argument("--all", action="store_true", help="do not apply black-hole excludes")
-    parser.add_argument("--clamscan", action="store_true", help="force standalone clamscan")
-    args = parser.parse_args()
+def on_exit() -> None:
+    if not FINISHED and PROGRESS.get("state") in {"counting", "scanning"}:
+        interrupt("exit")
 
-    STARTED = time.time()
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    LOG = STATE_DIR / f"scan-{stamp}.log"
-    latest = STATE_DIR / "latest.log"
-    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
 
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
+def load_progress() -> dict:
+    if not PROGRESS_PATH.exists():
+        return {}
+    try:
+        data = json.loads(PROGRESS_PATH.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
 
-    targets = [Path(t).expanduser() for t in args.targets]
-    apply_excludes = not args.all
-    use_clamd = (not args.clamscan) and clamd_ready()
 
-    log(f"=== av-scan {time.strftime('%Y-%m-%dT%H:%M:%S')} ===")
-    log(f"targets: {' '.join(str(t) for t in targets)}")
-    log(f"excludes: {int(apply_excludes)}")
-    log(f"engine: {'clamdscan batched' if use_clamd else 'clamscan batched'}")
-    log(f"progress: {PROGRESS_PATH}")
-    log("")
-
-    write_progress(
-        state="counting",
-        total=None,
-        done=0,
-        percent=None,
-        etaSec=None,
-        infected=0,
-        current=None,
-        log=str(LOG),
-        message="Counting files…",
+def finish_ok(total: int, done: int, infected: int, worst_rc: int) -> int:
+    global FINISHED
+    FINISHED = True
+    summary = (
+        f"\n----------- SCAN SUMMARY -----------\n"
+        f"Scanned files: {done}\n"
+        f"Infected files: {infected}\n"
+        f"Time: {wall_elapsed()}s\n"
     )
-
-    total = count_and_list(targets, apply_excludes)
-    log(f"files to scan: {total:,}")
+    log(summary)
     write_progress(
-        state="scanning",
+        state="done",
+        phase="scanning",
+        endedAt=time.strftime("%Y-%m-%dT%H:%M:%S"),
         total=total,
-        done=0,
-        percent=0,
-        etaSec=None,
-        infected=0,
+        done=done,
+        percent=100,
+        etaSec=0,
+        infected=infected,
         current=None,
-        log=str(LOG),
-        message=f"0 / {total:,} files",
+        message=f"Done · {infected} infected",
+        pid=None,
     )
+    upsert_history()
+    mark_notified()
+    latest = STATE_DIR / "latest.log"
+    try:
+        if latest.exists() or latest.is_symlink():
+            latest.unlink()
+        if LOG:
+            latest.symlink_to(LOG)
+    except OSError:
+        pass
+    PID_PATH.unlink(missing_ok=True)
+    for path in {ACTIVE_FILELIST, FILELIST_PATH}:
+        try:
+            if path.exists() or path.is_symlink():
+                path.unlink()
+        except OSError:
+            pass
+    body = f"{done:,} files · {infected} infected · {wall_elapsed()}s"
+    notify(
+        "Scan finished" if infected == 0 else f"Scan finished · {infected} infected",
+        body,
+        "critical" if infected else "normal",
+    )
+    log(f"log: {LOG}")
+    return 1 if worst_rc == 1 else (0 if worst_rc == 0 else worst_rc)
 
+
+def scan_filelist(
+    total: int, skip: int, use_clamd: bool, hits: list, filelist: Path
+) -> tuple[int, int, int]:
+    global SCAN_SESSION_START
+    SCAN_SESSION_START = time.time()
     batch_size = BATCH_CLAMD if use_clamd else BATCH_CLAMSCAN
-    done = 0
-    infected = 0
-    worst_rc = 0
+    done = skip
+    infected = len(hits)
+    worst_rc = 1 if infected else 0
     batch: list[str] = []
 
     def flush() -> None:
@@ -333,73 +484,184 @@ def main() -> int:
             worst_rc = max(worst_rc, 1)
         elif rc not in (0, 1):
             worst_rc = max(worst_rc, rc)
-        hits = parse_found(text)
-        if hits:
-            infected += len(hits)
-            for hit in hits:
-                log(hit)
+        for line in text.splitlines():
+            hit = parse_hit(line)
+            if not hit:
+                continue
+            hits.append(hit)
+            infected = len(hits)
+            log(line)
         done += len(batch)
-        elapsed = time.time() - STARTED
         percent = round(100.0 * done / total, 1) if total else 100.0
         write_progress(
+            phase="scanning",
             state="scanning",
             total=total,
             done=done,
             percent=percent,
-            etaSec=eta_sec(done, total, elapsed),
+            etaSec=eta_sec(done, total),
             infected=infected,
+            hits=hits,
             current=current,
-            log=str(LOG),
             message=f"{done:,} / {total:,} files",
         )
         batch = []
 
     if total == 0:
-        write_progress(
-            state="done",
-            total=0,
-            done=0,
-            percent=100,
-            etaSec=0,
-            infected=0,
-            current=None,
-            log=str(LOG),
-            message="No files to scan",
-        )
-    else:
-        for path in iter_nul(FILELIST_PATH):
-            batch.append(path)
-            if len(batch) >= batch_size:
-                flush()
-        flush()
+        return 0, 0, 0
 
-    summary = (
-        f"\n----------- SCAN SUMMARY -----------\n"
-        f"Scanned files: {done}\n"
-        f"Infected files: {infected}\n"
-        f"Time: {int(time.time() - STARTED)}s\n"
-    )
-    log(summary)
-    write_progress(
-        state="done",
-        total=total,
-        done=done,
-        percent=100,
-        etaSec=0,
-        infected=infected,
-        current=None,
-        log=str(LOG),
-        message=f"Done · {infected} infected",
-    )
-    try:
-        if latest.exists() or latest.is_symlink():
-            latest.unlink()
-        latest.symlink_to(LOG)
-    except OSError:
-        pass
-    PID_PATH.unlink(missing_ok=True)
-    log(f"log: {LOG}")
-    return 1 if worst_rc == 1 else (0 if worst_rc == 0 else worst_rc)
+    for path in iter_nul(filelist, skip=skip):
+        batch.append(path)
+        if len(batch) >= batch_size:
+            flush()
+    flush()
+    return total, done, worst_rc
+
+
+def main() -> int:
+    global LOG, SESSION_START, ELAPSED_BASE, SCAN_ELAPSED_BASE, PROGRESS, ACTIVE_FILELIST
+    parser = argparse.ArgumentParser(description="ClamAV scan with progress and resume")
+    parser.add_argument("targets", nargs="*")
+    parser.add_argument("--kind", choices=["full", "quick", "path"], default=None)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--all", action="store_true", help="do not apply black-hole excludes")
+    parser.add_argument("--clamscan", action="store_true", help="force standalone clamscan")
+    args = parser.parse_args()
+
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    SESSION_START = time.time()
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGHUP, shutdown)
+    atexit.register(on_exit)
+
+    saved = load_progress()
+    use_clamd = (not args.clamscan) and clamd_ready()
+
+    if args.resume:
+        if not saved:
+            raise SystemExit("nothing to resume")
+        if saved.get("state") == "done":
+            raise SystemExit("last scan already finished")
+        kind = saved.get("kind") or "full"
+        targets = [Path(t) for t in saved.get("targets") or [str(HOME)]]
+        apply_excludes = bool(saved.get("applyExcludes", True))
+        run_id = saved.get("id") or time.strftime("%Y%m%d-%H%M%S")
+        log_path = saved.get("log")
+        LOG = Path(log_path) if log_path else STATE_DIR / f"scan-{run_id}.log"
+        ELAPSED_BASE = float(saved.get("elapsedSec") or 0)
+        SCAN_ELAPSED_BASE = float(saved.get("scanElapsedSec") or 0)
+        hits = list(saved.get("hits") or [])
+        PROGRESS = dict(saved)
+        PROGRESS["id"] = run_id
+        phase = saved.get("phase") or saved.get("state") or "counting"
+        skip = int(saved.get("done") or 0) if phase == "scanning" else 0
+        total = saved.get("total")
+        fl = Path(saved.get("filelist") or filelist_for(run_id))
+        if not fl.exists() and FILELIST_PATH.exists():
+            fl = FILELIST_PATH
+        filelist_ok = fl.exists() and fl.stat().st_size > 0
+        resume_scan = (
+            phase == "scanning" and filelist_ok and isinstance(total, int) and total >= 0
+        )
+        if phase == "scanning" and not resume_scan:
+            log("file list missing — recounting, then scanning from the start")
+            skip = 0
+        log(f"=== av-scan resume {time.strftime('%Y-%m-%dT%H:%M:%S')} ===")
+        log(f"id: {run_id}  kind: {kind}  skip: {skip}")
+    else:
+        kind = args.kind
+        if kind is None:
+            kind = "path" if args.targets else "full"
+        if kind == "quick":
+            targets = quick_targets()
+        elif args.targets:
+            targets = [Path(t).expanduser() for t in args.targets]
+        else:
+            targets = [HOME]
+        apply_excludes = not args.all
+        run_id = time.strftime("%Y%m%d-%H%M%S")
+        LOG = STATE_DIR / f"scan-{run_id}.log"
+        hits = []
+        skip = 0
+        total = None
+        resume_scan = False
+        fl = filelist_for(run_id)
+        PROGRESS = {
+            "id": run_id,
+            "kind": kind,
+            "targets": [str(t) for t in targets],
+            "applyExcludes": apply_excludes,
+            "hits": [],
+            "startedAt": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "endedAt": None,
+            "filelist": str(fl),
+            "log": str(LOG),
+        }
+
+    ACTIVE_FILELIST = fl
+    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    PROGRESS["pid"] = os.getpid()
+    PROGRESS["kind"] = kind
+    PROGRESS["targets"] = [str(t) for t in targets]
+    PROGRESS["applyExcludes"] = apply_excludes
+    PROGRESS["log"] = str(LOG)
+    PROGRESS["filelist"] = str(fl)
+    point_generic_filelist(fl)
+
+    log(f"=== av-scan {time.strftime('%Y-%m-%dT%H:%M:%S')} ===")
+    log(f"kind: {kind}")
+    log(f"targets: {' '.join(str(t) for t in targets)}")
+    log(f"excludes: {int(apply_excludes)}")
+    log(f"engine: {'clamdscan batched' if use_clamd else 'clamscan batched'}")
+    log(f"progress: {PROGRESS_PATH}")
+    log("")
+
+    if not resume_scan:
+        write_progress(
+            phase="counting",
+            state="counting",
+            total=None,
+            done=0,
+            percent=None,
+            etaSec=None,
+            infected=len(hits),
+            hits=hits,
+            current=None,
+            message="Counting files…",
+        )
+        upsert_history()
+        total = count_and_list(targets, apply_excludes, fl)
+        log(f"files to scan: {total:,}")
+        skip = 0
+        write_progress(
+            phase="scanning",
+            state="scanning",
+            total=total,
+            done=0,
+            percent=0,
+            etaSec=None,
+            infected=len(hits),
+            hits=hits,
+            current=None,
+            message=f"0 / {total:,} files",
+        )
+        upsert_history()
+    else:
+        log(f"resuming file list ({skip:,} / {total:,})")
+        write_progress(
+            phase="scanning",
+            state="scanning",
+            total=total,
+            done=skip,
+            percent=round(100.0 * skip / total, 1) if total else 0,
+            message=f"Resuming {skip:,} / {total:,} files",
+        )
+        upsert_history()
+
+    assert isinstance(total, int)
+    total, done, worst_rc = scan_filelist(total, skip, use_clamd, hits, fl)
+    return finish_ok(total, done, len(hits), worst_rc)
 
 
 if __name__ == "__main__":

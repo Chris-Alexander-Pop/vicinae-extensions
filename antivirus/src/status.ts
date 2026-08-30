@@ -3,6 +3,11 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import {
+  canResumeRun,
+  upsertHistory,
+  writeProgressPatch,
+} from "./history";
 
 const execFileAsync = promisify(execFile);
 
@@ -32,10 +37,16 @@ export type ScanSummary = {
 };
 
 export type ScanProgress = {
-  state: "counting" | "scanning" | "done" | "cancelled" | "error" | string;
+  state: "counting" | "scanning" | "done" | "cancelled" | "interrupted" | "error" | string;
+  phase?: string;
+  id?: string;
+  kind?: string;
+  targets?: string[];
   startedAt: string | null;
   updatedAt: string | null;
+  endedAt?: string | null;
   elapsedSec: number;
+  scanElapsedSec?: number;
   total: number | null;
   done: number;
   percent: number | null;
@@ -44,6 +55,24 @@ export type ScanProgress = {
   current: string | null;
   log: string | null;
   message: string | null;
+  hits?: { path: string; signature: string }[];
+  filelist?: string | null;
+  applyExcludes?: boolean;
+};
+
+export type RkhunterSummary = {
+  filesChecked: number | null;
+  suspectFiles: number | null;
+  rootkits: number | null;
+  warnings: boolean | null;
+  took: string | null;
+};
+
+export type SigAge = {
+  officialHours: number | null;
+  officialLabel: string;
+  unofficialHours: number | null;
+  unofficialLabel: string;
 };
 
 export type AvStatus = {
@@ -56,7 +85,10 @@ export type AvStatus = {
   lastLog: string | null;
   lastSummary: ScanSummary | null;
   rkhunterLog: string | null;
+  rkhunter: RkhunterSummary | null;
   progress: ScanProgress | null;
+  resumable: boolean;
+  sigAge: SigAge;
 };
 
 function pidAlive(pid: number): boolean {
@@ -100,9 +132,15 @@ export function readProgress(): ScanProgress | null {
     const raw = JSON.parse(readFileSync(PROGRESS_PATH, "utf8")) as Partial<ScanProgress>;
     return {
       state: String(raw.state ?? "unknown"),
+      phase: raw.phase,
+      id: raw.id,
+      kind: raw.kind,
+      targets: raw.targets,
       startedAt: raw.startedAt ?? null,
       updatedAt: raw.updatedAt ?? null,
+      endedAt: raw.endedAt,
       elapsedSec: Number(raw.elapsedSec ?? 0),
+      scanElapsedSec: raw.scanElapsedSec,
       total: raw.total == null ? null : Number(raw.total),
       done: Number(raw.done ?? 0),
       percent: raw.percent == null ? null : Number(raw.percent),
@@ -111,6 +149,9 @@ export function readProgress(): ScanProgress | null {
       current: raw.current ?? null,
       log: raw.log ?? null,
       message: raw.message ?? null,
+      hits: raw.hits,
+      filelist: raw.filelist,
+      applyExcludes: raw.applyExcludes,
     };
   } catch {
     return null;
@@ -194,6 +235,87 @@ export function parseScanSummary(text: string): ScanSummary {
   };
 }
 
+function ageHours(mtime: Date): number {
+  return (Date.now() - mtime.getTime()) / 3_600_000;
+}
+
+function ageLabel(mtime: Date | null): { hours: number | null; label: string } {
+  if (!mtime) return { hours: null, label: "unknown" };
+  const hours = ageHours(mtime);
+  if (hours < 1) return { hours, label: `${Math.max(1, Math.round(hours * 60))}m ago` };
+  if (hours < 48) return { hours, label: `${Math.round(hours)}h ago` };
+  return { hours, label: `${Math.round(hours / 24)}d ago` };
+}
+
+function officialMtime(): Date | null {
+  for (const name of ["daily.cld", "daily.cvd"]) {
+    const p = join("/var/lib/clamav", name);
+    if (!existsSync(p)) continue;
+    try {
+      return statSync(p).mtime;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function unofficialMtime(): Date | null {
+  const dir = "/var/lib/clamav";
+  if (!existsSync(dir)) return null;
+  let newest: Date | null = null;
+  for (const name of readdirSync(dir)) {
+    if (OFFICIAL.has(name) || name.endsWith(".sign") || name.startsWith(".")) continue;
+    if (!/\.(ndb|ldb|hdb|hsb|cdb|ign2|ftm|yar|yara|db)$/i.test(name)) continue;
+    try {
+      const m = statSync(join(dir, name)).mtime;
+      if (!newest || m > newest) newest = m;
+    } catch {
+      // skip
+    }
+  }
+  return newest;
+}
+
+export function parseRkhunter(text: string): RkhunterSummary {
+  const files = text.match(/Files checked:\s+(\d+)/);
+  const suspect = text.match(/Suspect files:\s+(\d+)/);
+  const kits = text.match(/Possible rootkits:\s+(\d+)/);
+  const took = text.match(/The system checks took:\s+(.+)/);
+  let warnings: boolean | null = null;
+  if (/No warnings were found/i.test(text)) warnings = false;
+  if (/One or more warnings have been found/i.test(text)) warnings = true;
+  return {
+    filesChecked: files ? Number.parseInt(files[1], 10) : null,
+    suspectFiles: suspect ? Number.parseInt(suspect[1], 10) : null,
+    rootkits: kits ? Number.parseInt(kits[1], 10) : null,
+    warnings,
+    took: took?.[1]?.trim() ?? null,
+  };
+}
+
+export function progressToRun(p: ScanProgress): import("./history").ScanRun {
+  return {
+    id: p.id || p.startedAt || "unknown",
+    kind: (p.kind as import("./history").ScanKind) || "full",
+    targets: p.targets ?? [],
+    state: p.state,
+    phase: p.phase,
+    startedAt: p.startedAt,
+    endedAt: p.endedAt ?? null,
+    elapsedSec: p.elapsedSec,
+    scanElapsedSec: p.scanElapsedSec,
+    total: p.total,
+    done: p.done,
+    percent: p.percent,
+    infected: p.infected,
+    hits: p.hits ?? [],
+    log: p.log,
+    filelist: p.filelist,
+    applyExcludes: p.applyExcludes,
+  };
+}
+
 function unofficialDbs(): string[] {
   const dir = "/var/lib/clamav";
   if (!existsSync(dir)) return [];
@@ -247,9 +369,35 @@ export async function getAvStatus(): Promise<AvStatus> {
     }
   }
   const rkhunterLog = join(STATE_DIR, "rkhunter-last.log");
+  let rkhunter: RkhunterSummary | null = null;
+  if (existsSync(rkhunterLog)) {
+    try {
+      rkhunter = parseRkhunter(readFileSync(rkhunterLog, "utf8"));
+    } catch {
+      rkhunter = null;
+    }
+  }
   const [active, signatures] = await Promise.all([clamdActive(), signatureCount()]);
-  const progress = readProgress();
+  let progress = readProgress();
   const running = scanPid !== null;
+  if (
+    !running &&
+    progress &&
+    (progress.state === "counting" || progress.state === "scanning")
+  ) {
+    writeProgressPatch({
+      state: "interrupted",
+      endedAt: new Date().toISOString().slice(0, 19),
+      message: `Interrupted at ${(progress.done ?? 0).toLocaleString()} files — resume from Antivirus`,
+      pid: null,
+    });
+    progress = readProgress();
+    if (progress) upsertHistory(progressToRun(progress));
+  }
+  const off = officialMtime();
+  const unoff = unofficialMtime();
+  const offAge = ageLabel(off);
+  const unAge = ageLabel(unoff);
   return {
     clamdActive: active,
     signatures,
@@ -260,7 +408,15 @@ export async function getAvStatus(): Promise<AvStatus> {
     lastLog: progress?.log && existsSync(progress.log) ? progress.log : lastLog,
     lastSummary,
     rkhunterLog: existsSync(rkhunterLog) ? rkhunterLog : null,
+    rkhunter,
     progress,
+    resumable: !running && canResumeRun(progress ? progressToRun(progress) : null),
+    sigAge: {
+      officialHours: offAge.hours,
+      officialLabel: offAge.label,
+      unofficialHours: unAge.hours,
+      unofficialLabel: unAge.label,
+    },
   };
 }
 
@@ -275,6 +431,10 @@ export function formatSubtitle(status: AvStatus): string {
       return `${p.percent}%${eta}`;
     }
     return "Scanning…";
+  }
+  if (status.resumable) {
+    const pct = p?.percent != null ? `${p.percent}%` : "scan";
+    return `Resume ${pct}`;
   }
   const infected = p?.state === "done" ? p.infected : status.lastSummary?.infected;
   if (infected === null || infected === undefined) return status.clamdActive ? "Ready" : "Daemon off";

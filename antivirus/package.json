@@ -27,7 +27,7 @@
       "name": "antivirus",
       "title": "Antivirus",
       "subtitle": "System",
-      "description": "Scan home with ClamAV (extra signatures), update defs, run rkhunter",
+      "description": "Full / quick / path ClamAV scans, history, resume, rkhunter",
       "mode": "view",
       "keywords": [
         "clamav",
@@ -43,7 +43,7 @@
       "subtitle": "Idle",
       "description": "Live scan/idle subtitle in root search. Background poll.",
       "mode": "no-view",
-      "interval": "30s",
+      "interval": "15s",
       "keywords": [
         "clamav",
         "status",
@@ -51,7 +51,17 @@
       ]
     }
   ],
-  "preferences": [],
+  "preferences": [
+    {
+      "name": "notificationsEnabled",
+      "type": "checkbox",
+      "title": "Notifications",
+      "label": "Desktop ping when a scan finishes or is interrupted",
+      "description": "Uses Vicinae notifications in addition to notify-send from av-scan",
+      "default": true,
+      "required": false
+    }
+  ],
   "engines": {
     "node": ">=26"
   },
