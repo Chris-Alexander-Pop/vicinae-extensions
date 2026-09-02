@@ -14,6 +14,7 @@ Private local-only [Vicinae](https://vicinae.com) extensions for this machine.
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles + `renice`/`ionice` via helper |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + recent-run history |
 | [`todo/`](todo/) | Todo, Todo Reminders | Ordered queue + priorities; desktop pings at HH:MM (`~/.config/vicinae/todo/todos.json`) |
+| [`internships/`](internships/) | Internships, Internship Watch | SpeedyApply SWE internships: unviewed pile + listings; apply / skip (`~/.config/vicinae/internships/state.json`) |
 | [`vpn/`](vpn/) | VPN, VPN Status | Import `.conf`/`.ovpn`/OpenConnect profiles; auto NM vpn/wireguard; multi-up, priority, app allowlists |
 | [`antivirus/`](antivirus/) | Antivirus, Antivirus Status | ClamAV full/quick/path scans, history, resume, hits, rkhunter |
 
@@ -137,6 +138,17 @@ Search **Todo**. Ctrl+N adds; Enter / Ctrl+T checks off (unchecked items go to t
 On add/edit: set **priority** (queue sorts urgent → none, then manual order) and a **reminder** time (`HH:MM` local). Once = ping today; Daily = every day until done. If the time already passed when Vicinae starts, it waits the **boot delay** (default 60s) then pings.
 
 Background command **Todo Reminders** polls every 30s and uses `sendDesktopNotification`. Run it from search to ping immediately (skips boot delay). Knobs live in extension preferences (Notifications, boot delay, session gap, re-notify interval, min priority, add-form defaults). **Notification Settings** from the Todo list opens that pane.
+
+### Internships
+
+SpeedyApply SWE internships ([2027-SWE-College-Jobs](https://github.com/speedyapply/2027-SWE-College-Jobs)). First sync seeds today’s USA + international internships into **Listings** (newest first). Later arrivals go to **Unviewed**. State: `~/.config/vicinae/internships/state.json`.
+
+```bash
+cd internships && npm install && npm run build
+```
+
+Search **Internships**. Dropdown / Ctrl+1–4: Unviewed, Listings, Applied, Skipped. Ctrl+F / Ctrl+Q / Ctrl+O / Ctrl+0 filter FAANG+, Quant, Other, or all. Ctrl+N newest first; Ctrl+G groups FAANG+ then Quant then Other (newest within each). Enter opens the posting and marks **Applied**; Ctrl+S skips; Ctrl+Z undoes; Ctrl+R refreshes. Extension preferences: **Lists** (USA / International / Both) and desktop notifications when Unviewed grows. **Internship Watch** polls every 15m and shows the new count as the command subtitle.
+
 
 
 
