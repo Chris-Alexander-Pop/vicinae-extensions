@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { useState } from "react";
 import {
   Action,
@@ -90,7 +92,7 @@ export function PathScanForm({ onStarted }: Props) {
       <Form.TextField
         id="path"
         title="Or path"
-        placeholder="$HOME/Downloads"
+        placeholder={join(homedir(), "Downloads")}
         value={path}
         onChange={setPath}
       />

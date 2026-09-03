@@ -133,3 +133,42 @@ export async function setDeviceEnabled(
     `hl.device({ name = "${escaped}", enabled = ${enabled ? "true" : "false"} })`,
   );
 }
+
+type DevicesJson = {
+  mice?: { name?: string }[];
+};
+
+export async function listMice(): Promise<string[]> {
+  const { stdout, stderr } = await hyprctl(["-j", "devices"]);
+  assertOk(stdout, stderr, "devices");
+  let parsed: DevicesJson;
+  try {
+    parsed = JSON.parse(stdout) as DevicesJson;
+  } catch {
+    throw new Error(`Could not parse devices JSON: ${stdout}`);
+  }
+  return (parsed.mice ?? [])
+    .map((m) => m.name?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function looksLikeTrackpoint(name: string): boolean {
+  const n = name.toLowerCase();
+  return (
+    n.includes("trackpoint") ||
+    n.includes("track-point") ||
+    n.startsWith("tpps/")
+  );
+}
+
+/** Env pin, else first hyprctl mouse that looks like a TrackPoint. */
+export async function resolveTrackpointDevice(): Promise<string | undefined> {
+  const pinned = process.env.VICINAE_TRACKPOINT_DEVICE?.trim();
+  if (pinned) return pinned;
+  try {
+    const mice = await listMice();
+    return mice.find(looksLikeTrackpoint);
+  } catch {
+    return undefined;
+  }
+}

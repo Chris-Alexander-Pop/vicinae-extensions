@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   getOption,
+  resolveTrackpointDevice,
   setBoolOption,
   setDeviceEnabled,
   setIntOption,
@@ -74,12 +75,19 @@ export const SETTINGS: SettingDef[] = [
   {
     id: "trackpoint",
     title: "TrackPoint",
-    description: "ThinkPad red-dot pointer (tpps/2-elan-trackpoint)",
+    description: "Red-dot pointer",
     keywords: ["trackpoint", "nipple", "stick", "pointer", "mouse"],
     kind: "device-bool",
-    deviceName: "tpps/2-elan-trackpoint",
   },
 ];
+
+async function resolvedDeviceName(
+  def: SettingDef,
+): Promise<string | undefined> {
+  if (def.deviceName) return def.deviceName;
+  if (def.id === "trackpoint") return resolveTrackpointDevice();
+  return undefined;
+}
 
 /** Device enabled can't be queried via getoption — persist for the session. */
 function deviceStatePath(id: string): string {
@@ -128,10 +136,16 @@ function asEnabled(value: HyprOptionValue): boolean {
 
 export async function readSetting(def: SettingDef): Promise<SettingState> {
   if (def.kind === "device-bool") {
-    if (!def.deviceName) {
+    const deviceName = await resolvedDeviceName(def);
+    if (!deviceName) {
       throw new Error(`Setting ${def.id} missing deviceName`);
     }
-    return { ...def, enabled: readDeviceEnabled(def.id) };
+    return {
+      ...def,
+      deviceName,
+      description: `${def.description} (${deviceName})`,
+      enabled: readDeviceEnabled(def.id),
+    };
   }
 
   if (!def.option) {
@@ -143,7 +157,17 @@ export async function readSetting(def: SettingDef): Promise<SettingState> {
 }
 
 export async function readAllSettings(): Promise<SettingState[]> {
-  return Promise.all(SETTINGS.map((def) => readSetting(def)));
+  const defs: SettingDef[] = [];
+  for (const def of SETTINGS) {
+    if (def.kind === "device-bool" && !def.deviceName) {
+      const deviceName = await resolvedDeviceName(def);
+      if (!deviceName) continue;
+      defs.push({ ...def, deviceName });
+      continue;
+    }
+    defs.push(def);
+  }
+  return Promise.all(defs.map((def) => readSetting(def)));
 }
 
 export async function setSettingEnabled(
@@ -163,10 +187,11 @@ export async function setSettingEnabled(
       break;
     }
     case "device-bool": {
-      if (!def.deviceName) {
+      const deviceName = await resolvedDeviceName(def);
+      if (!deviceName) {
         throw new Error(`Setting ${def.id} missing deviceName`);
       }
-      await setDeviceEnabled(def.deviceName, enabled);
+      await setDeviceEnabled(deviceName, enabled);
       writeDeviceEnabled(def.id, enabled);
       break;
     }
