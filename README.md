@@ -147,7 +147,7 @@ SpeedyApply SWE internships ([2027-SWE-College-Jobs](https://github.com/speedyap
 cd internships && npm install && npm run build
 ```
 
-Search **Internships**. Dropdown / Ctrl+1–4: Unviewed, Listings, Applied, Skipped. Ctrl+F / Ctrl+Q / Ctrl+O / Ctrl+0 filter FAANG+, Quant, Other, or all. Ctrl+N newest first; Ctrl+G groups FAANG+ then Quant then Other (newest within each). Enter opens the posting and marks **Applied**; Ctrl+S skips; Ctrl+Z undoes; Ctrl+R refreshes. Extension preferences: **Lists** (USA / International / Both) and desktop notifications when Unviewed grows. **Internship Watch** polls every 15m and shows the new count as the command subtitle.
+Search **Internships**. Dropdown / Ctrl+1–4: Unviewed, Listings, Applied, Skipped. **Ctrl+U** keeps US & Canada (default); Ctrl+Shift+U shows every region. Ctrl+F / Ctrl+Q / Ctrl+O / Ctrl+0 filter FAANG+, Quant, Other, or all. Ctrl+N newest first; Ctrl+G groups FAANG+ then Quant then Other (newest within each). Enter opens the posting and marks **Applied**; Ctrl+S skips; Ctrl+Z undoes; Ctrl+R refreshes. Extension preferences: **Lists** (USA / International / Both) and desktop notifications when Unviewed grows. **Internship Watch** polls every 15m and shows the new count as the command subtitle.
 
 
 
