@@ -3,14 +3,11 @@
 private/
 **/private/
 
-# Passwordless sudo / sudoers installers (private-only).
-vpn/private/
+# Passwordless sudo / sudoers installers (this machine only).
 power-profiles/private/
 
 # Interactive sudo askpass helpers used on this machine; keep them out of a store copy.
 topgrade/private/
 
 # Privileged root helpers that assume a local sudoers drop-in.
-vpn/bin/vicinae-vpn
-vpn/bin/vicinae-vpn-openconnect
 power-profiles/bin/vicinae-boost-app

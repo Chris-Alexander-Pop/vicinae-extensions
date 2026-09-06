@@ -14,3 +14,7 @@
 **/__pycache__/
 *.pyc
 **/.test-out/
+
+# Private extensions live in a separate repo. Ignore if copied next to this tree.
+/vpn/
+/internships/

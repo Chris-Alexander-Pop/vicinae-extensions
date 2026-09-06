@@ -17,12 +17,10 @@ jobs:
           - brightness
           - gvl
           - hyprland-settings
-          - internships
           - packages
           - power-profiles
           - todo
           - topgrade
-          - vpn
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

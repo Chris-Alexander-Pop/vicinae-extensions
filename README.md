@@ -1,6 +1,6 @@
 # Vicinae extensions
 
-Private local [Vicinae](https://vicinae.com) extensions. MIT licensed (`LICENSE`). Each extension has `npm test`.
+[Vicinae](https://vicinae.com) extensions for Arch / Hyprland. MIT licensed (`LICENSE`). Each extension has `npm test`.
 
 Passwordless sudo installers and GUI sudo askpass helpers live under `*/private/` and are listed in `STORE-EXCLUDE.txt`. Do not copy those into a `vicinaehq/extensions` pull request.
 
@@ -17,8 +17,6 @@ Passwordless sudo installers and GUI sudo askpass helpers live under `*/private/
 | [`packages/`](packages/) | Packages | Pacman + AUR browse/search/install/update/uninstall |
 | [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles; boost helper is private-only |
 | [`gvl/`](gvl/) | Govee Lights, Toggle Lights | `gvl` CLI |
-| [`internships/`](internships/) | Internships, Internship Watch | Public SpeedyApply SWE lists; local applied/skipped state |
-| [`vpn/`](vpn/) | VPN, VPN Status | NM/OpenVPN/OpenConnect; **not for the store** (root helper) |
 
 ## Requirements
 
@@ -35,11 +33,10 @@ npm test
 npm run build   # installs to ~/.local/share/vicinae/extensions/<name>
 ```
 
-### Private helpers (this machine only)
+### Machine-local helpers
 
 ```bash
 bash topgrade/scripts/install-runner.sh
-sudo bash vpn/private/install-permissions.sh
 sudo bash power-profiles/private/install-boost-permissions.sh
 ```
 
