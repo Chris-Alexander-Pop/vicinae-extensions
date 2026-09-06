@@ -78,21 +78,58 @@ export function luaConfigAssignment(
   option: string,
   luaValue: string,
 ): string {
-  const parts = option.split(":").filter(Boolean);
-  if (parts.length === 0) {
-    throw new Error(`Invalid option path: ${option}`);
-  }
+  const parts = optionSegments(option);
 
   let body = luaValue;
   for (let i = parts.length - 1; i >= 0; i--) {
     const key = parts[i]!;
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      throw new Error(`Invalid option segment "${key}" in ${option}`);
-    }
     body = `{ ${key} = ${body} }`;
   }
 
   return `hl.config(${body})`;
+}
+
+function optionSegments(option: string): string[] {
+  const parts = option.split(":").filter(Boolean);
+  if (parts.length === 0) {
+    throw new Error(`Invalid option path: ${option}`);
+  }
+  for (const key of parts) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`Invalid option segment "${key}" in ${option}`);
+    }
+  }
+  return parts;
+}
+
+/** Nested hyprlang block for sourcing from hyprland.conf. */
+export function hyprlangConfigAssignment(
+  option: string,
+  hyprValue: string,
+): string {
+  const parts = optionSegments(option);
+  const lines: string[] = [];
+  for (let i = 0; i < parts.length - 1; i++) {
+    lines.push(`${"    ".repeat(i)}${parts[i]} {`);
+  }
+  const last = parts[parts.length - 1]!;
+  lines.push(`${"    ".repeat(parts.length - 1)}${last} = ${hyprValue}`);
+  for (let i = parts.length - 2; i >= 0; i--) {
+    lines.push(`${"    ".repeat(i)}}`);
+  }
+  return lines.join("\n");
+}
+
+export function hyprlangDeviceEnabled(
+  name: string,
+  enabled: boolean,
+): string {
+  return [
+    "device {",
+    `    name = ${name}`,
+    `    enabled = ${enabled ? "true" : "false"}`,
+    "}",
+  ].join("\n");
 }
 
 export async function evalLua(code: string): Promise<void> {
@@ -124,14 +161,16 @@ export async function setIntOption(
   await evalLua(luaConfigAssignment(option, String(value)));
 }
 
+export function luaDeviceEnabled(name: string, enabled: boolean): string {
+  const escaped = name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `hl.device({ name = "${escaped}", enabled = ${enabled ? "true" : "false"} })`;
+}
+
 export async function setDeviceEnabled(
   name: string,
   enabled: boolean,
 ): Promise<void> {
-  const escaped = name.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  await evalLua(
-    `hl.device({ name = "${escaped}", enabled = ${enabled ? "true" : "false"} })`,
-  );
+  await evalLua(luaDeviceEnabled(name, enabled));
 }
 
 type DevicesJson = {

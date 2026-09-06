@@ -3,6 +3,9 @@ import { describe, it } from "node:test";
 import {
   looksLikeTrackpoint,
   luaConfigAssignment,
+  luaDeviceEnabled,
+  hyprlangConfigAssignment,
+  hyprlangDeviceEnabled,
 } from "../src/hyprctl";
 import { statusLabel } from "../src/settings";
 
@@ -23,6 +26,44 @@ describe("luaConfigAssignment", () => {
     assert.throws(
       () => luaConfigAssignment("animations:enabled-flag", "true"),
       /Invalid option segment/,
+    );
+  });
+});
+
+describe("luaDeviceEnabled", () => {
+  it("quotes the device name and bool", () => {
+    assert.equal(
+      luaDeviceEnabled("tpps/2-elan-trackpoint", false),
+      'hl.device({ name = "tpps/2-elan-trackpoint", enabled = false })',
+    );
+  });
+
+  it("escapes quotes in the device name", () => {
+    assert.equal(
+      luaDeviceEnabled('weird"name', true),
+      'hl.device({ name = "weird\\"name", enabled = true })',
+    );
+  });
+});
+
+describe("hyprlangConfigAssignment", () => {
+  it("nests a dotted option into hyprlang blocks", () => {
+    assert.equal(
+      hyprlangConfigAssignment("animations:enabled", "true"),
+      "animations {\n    enabled = true\n}",
+    );
+    assert.equal(
+      hyprlangConfigAssignment("decoration:blur:enabled", "false"),
+      "decoration {\n    blur {\n        enabled = false\n    }\n}",
+    );
+  });
+});
+
+describe("hyprlangDeviceEnabled", () => {
+  it("emits a device block", () => {
+    assert.equal(
+      hyprlangDeviceEnabled("tpps/2-elan-trackpoint", false),
+      "device {\n    name = tpps/2-elan-trackpoint\n    enabled = false\n}",
     );
   });
 });

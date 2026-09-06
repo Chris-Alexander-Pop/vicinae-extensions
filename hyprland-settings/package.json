@@ -30,6 +30,21 @@
         "blur",
         "wm"
       ]
+    },
+    {
+      "name": "setup-persist",
+      "title": "Install Persist Hook",
+      "subtitle": "Hyprland",
+      "description": "Wire saved Hyprland Settings into hyprland.lua or hyprland.conf so they survive reload and login",
+      "mode": "no-view",
+      "keywords": [
+        "persist",
+        "remember",
+        "setup",
+        "install",
+        "hook",
+        "restart"
+      ]
     }
   ],
   "preferences": [],

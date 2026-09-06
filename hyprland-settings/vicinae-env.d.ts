@@ -16,11 +16,21 @@ declare namespace Preferences {
 	export type HyprlandSettings = ExtensionPreferences & {
 		
 	}
+
+	/** Command: Install Persist Hook */
+	export type SetupPersist = ExtensionPreferences & {
+		
+	}
 }
 
 declare namespace Arguments {
   /** Command: Hyprland Settings */
 	export type HyprlandSettings = {
+		
+	}
+
+	/** Command: Install Persist Hook */
+	export type SetupPersist = {
 		
 	}
 }

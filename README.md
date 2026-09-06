@@ -11,7 +11,7 @@ Passwordless sudo installers and GUI sudo askpass helpers live under `*/private/
 | [`todo/`](todo/) | Todo, Todo Reminders | Ordered queue + priorities; desktop pings at HH:MM |
 | [`brightness/`](brightness/) | Set Brightness | `brightnessctl` |
 | [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | BlueZ D-Bus + `rfkill`; 30s subtitle |
-| [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Runtime toggles via `hyprctl eval` (Lua) |
+| [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Toggles via `hyprctl eval` (Lua); persisted in `vicinae-settings.lua` |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + retry |
 | [`antivirus/`](antivirus/) | Antivirus, Antivirus Status | ClamAV full/quick/path, history, resume, rkhunter |
 | [`packages/`](packages/) | Packages | Pacman + AUR browse/search/install/update/uninstall |
