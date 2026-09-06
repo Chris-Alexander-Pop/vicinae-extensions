@@ -102,8 +102,8 @@ export async function listOpenApps(): Promise<OpenApp[]> {
 
 function helperMissingMessage(): string {
   return (
-    "Boost needs passwordless sudo for /usr/local/bin/vicinae-boost-app. " +
-    "Run once: sudo bash ~/Engineering/Productivity/vicinae/power-profiles/scripts/install-boost-permissions.sh"
+    "Boost needs pkexec (polkit) or sudo for /usr/local/bin/vicinae-boost-app. " +
+    "Optional private drop-in (not for the store): sudo bash power-profiles/private/install-boost-permissions.sh"
   );
 }
 
@@ -117,7 +117,7 @@ async function runHelper(
   }
 
   try {
-    await execFileAsync("sudo", ["-n", HELPER, action, ...unique.map(String)]);
+    await execFileAsync("sudo", [HELPER, action, ...unique.map(String)]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     if (

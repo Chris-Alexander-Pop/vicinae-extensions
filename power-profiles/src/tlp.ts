@@ -22,7 +22,7 @@ const PROFILE_ALIASES: Record<string, TlpProfile> = {
 };
 
 export function normalizeProfile(raw: string): TlpProfile | null {
-  const key = raw.trim().toLowerCase().split("/")[0] ?? "";
+  const key = raw.trim().toLowerCase().split("/")[0]?.trim() ?? "";
   return PROFILE_ALIASES[key] ?? null;
 }
 
@@ -54,11 +54,11 @@ export async function getTlpStatus(): Promise<TlpStatus> {
 
 export async function setTlpProfile(profile: TlpProfile): Promise<TlpStatus> {
   try {
-    await execFileAsync("sudo", ["-n", "tlp", profile]);
+    await execFileAsync("sudo", ["tlp", profile]);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `Failed to set TLP profile (need passwordless sudo for tlp): ${message}`,
+      `Failed to set TLP profile (needs sudo or pkexec for tlp): ${message}`,
     );
   }
   return getTlpStatus();

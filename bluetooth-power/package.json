@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "bluetooth-power",
   "title": "Bluetooth Power",
-  "description": "Toggle Bluetooth adapter power (local-only)",
+  "description": "Toggle Bluetooth adapter power",
   "categories": [
     "System"
   ],
@@ -10,7 +10,7 @@
   "platforms": [
     "Linux"
   ],
-  "author": "chris",
+  "author": "Chris-Alexander-Pop",
   "contributors": [],
   "pastContributors": [],
   "icon": "extension_icon.png",
@@ -22,7 +22,12 @@
       "description": "Flip Bluetooth adapter power. Live On/Off shows as the command subtitle.",
       "mode": "no-view",
       "interval": "30s",
-      "keywords": ["bt", "adapter", "power", "radio"]
+      "keywords": [
+        "bt",
+        "adapter",
+        "power",
+        "radio"
+      ]
     }
   ],
   "preferences": [],
@@ -31,7 +36,8 @@
   },
   "scripts": {
     "build": "vici build",
-    "dev": "vici develop"
+    "dev": "vici develop",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js"
   },
   "dependencies": {
     "@vicinae/api": "^0.23.1"

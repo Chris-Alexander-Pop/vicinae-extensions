@@ -15,29 +15,36 @@ function deviceArgs(device?: string): string[] {
   return device?.trim() ? ["-d", device.trim()] : [];
 }
 
+export function parseBrightnessctlInfo(stdout: string): BrightnessInfo {
+  // device,class,current,percent%,max
+  const [name, className, current, percentRaw, max] = stdout.trim().split(",");
+  return {
+    device: name ?? "",
+    className: className ?? "",
+    current: Number(current),
+    percent: Number((percentRaw ?? "").replace("%", "")),
+    max: Number(max),
+  };
+}
+
+export function clampPercent(percent: number): number {
+  return Math.max(0, Math.min(100, Math.round(percent)));
+}
+
 export async function getBrightness(device?: string): Promise<BrightnessInfo> {
   const { stdout } = await execFileAsync("brightnessctl", [
     ...deviceArgs(device),
     "-m",
     "info",
   ]);
-
-  // device,class,current,percent%,max
-  const [name, className, current, percentRaw, max] = stdout.trim().split(",");
-  return {
-    device: name,
-    className,
-    current: Number(current),
-    percent: Number(percentRaw.replace("%", "")),
-    max: Number(max),
-  };
+  return parseBrightnessctlInfo(stdout);
 }
 
 export async function setBrightnessPercent(
   percent: number,
   device?: string,
 ): Promise<BrightnessInfo> {
-  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const clamped = clampPercent(percent);
   await execFileAsync("brightnessctl", [
     ...deviceArgs(device),
     "-q",

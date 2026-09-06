@@ -152,7 +152,7 @@ export async function listMice(): Promise<string[]> {
     .filter(Boolean);
 }
 
-function looksLikeTrackpoint(name: string): boolean {
+export function looksLikeTrackpoint(name: string): boolean {
   const n = name.toLowerCase();
   return (
     n.includes("trackpoint") ||

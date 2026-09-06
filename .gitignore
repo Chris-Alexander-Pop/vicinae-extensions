@@ -13,3 +13,4 @@
 .npm/
 **/__pycache__/
 *.pyc
+**/.test-out/

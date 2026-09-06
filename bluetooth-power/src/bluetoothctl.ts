@@ -18,7 +18,7 @@ export type BluetoothStatus = {
   name?: string;
 };
 
-function parseRfkill(stdout: string): {
+export function parseRfkill(stdout: string): {
   softBlocked: boolean;
   hardBlocked: boolean;
 } {

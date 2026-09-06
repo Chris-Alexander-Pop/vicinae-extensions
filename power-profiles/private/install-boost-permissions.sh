@@ -1,4 +1,5 @@
 #!/bin/bash
+# PRIVATE-ONLY. Do not copy into a vicinaehq/extensions store submission.
 # Install passwordless sudo for the boost helper (same pattern as tlp NOPASSWD).
 set -euo pipefail
 

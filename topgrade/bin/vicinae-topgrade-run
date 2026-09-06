@@ -476,14 +476,6 @@ on_signal() {
 
 trap 'on_signal' INT TERM
 
-(
-  while true; do
-    /usr/bin/sudo -n -v 2>/dev/null || true
-    sleep 60
-  done
-) &
-KEEPALIVE_PID=$!
-
 parse_loop &
 PARSER_PID=$!
 

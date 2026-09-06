@@ -61,7 +61,7 @@ const KERNEL_FLAVORS = ["zen", "lts", "hardened", "rt", "mainline"] as const;
 let cachedKernelPackages: string[] | undefined;
 let cachedBuiltin: Set<string> | undefined;
 
-function kernelPackagesFromUname(rel: string): string[] {
+export function kernelPackagesFromUname(rel: string): string[] {
   const lower = rel.toLowerCase();
   const flavor = KERNEL_FLAVORS.find(
     (f) => lower.includes(`-${f}`) || lower.endsWith(f),

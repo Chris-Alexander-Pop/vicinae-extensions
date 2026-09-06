@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "packages",
   "title": "Packages",
-  "description": "Browse, search, install, update, and uninstall Pacman/AUR packages (local-only)",
+  "description": "Browse, search, install, update, and uninstall Pacman/AUR packages",
   "categories": [
     "System"
   ],
@@ -10,7 +10,7 @@
   "platforms": [
     "Linux"
   ],
-  "author": "chris",
+  "author": "Chris-Alexander-Pop",
   "contributors": [],
   "pastContributors": [],
   "icon": "extension_icon.svg",
@@ -38,7 +38,8 @@
   },
   "scripts": {
     "build": "vici build",
-    "dev": "vici develop"
+    "dev": "vici develop",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js"
   },
   "dependencies": {
     "@vicinae/api": "^0.23.1"

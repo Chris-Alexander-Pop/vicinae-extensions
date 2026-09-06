@@ -93,7 +93,7 @@ export default function PowerProfilesCommand() {
         <List.EmptyView
           icon={Icon.ExclamationMark}
           title="Can't talk to TLP"
-          description={`${error}\n\nThis machine uses TLP (power-profiles-daemon is masked). Install tlp and ensure: sudo -n tlp performance`}
+          description={`${error}\n\nInstall tlp. Switching profiles runs \`sudo tlp <profile>\` (polkit/pkexec also works if you wrap it).`}
         />
       </List>
     );

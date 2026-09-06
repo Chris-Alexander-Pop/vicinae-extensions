@@ -1,0 +1,38 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        extension:
+          - antivirus
+          - bluetooth-power
+          - brightness
+          - gvl
+          - hyprland-settings
+          - internships
+          - packages
+          - power-profiles
+          - todo
+          - topgrade
+          - vpn
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: ${{ matrix.extension }}/package-lock.json
+      - name: Install
+        working-directory: ${{ matrix.extension }}
+        run: npm ci
+      - name: Test
+        working-directory: ${{ matrix.extension }}
+        run: npm test

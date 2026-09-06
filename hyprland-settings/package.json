@@ -10,7 +10,7 @@
   "platforms": [
     "Linux"
   ],
-  "author": "chris",
+  "author": "Chris-Alexander-Pop",
   "contributors": [],
   "pastContributors": [],
   "icon": "extension_icon.svg",
@@ -38,7 +38,8 @@
   },
   "scripts": {
     "build": "vici build",
-    "dev": "vici develop"
+    "dev": "vici develop",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js"
   },
   "dependencies": {
     "@vicinae/api": "^0.23.1"

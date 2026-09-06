@@ -44,7 +44,7 @@ export default function TopgradeCommand() {
 Install once:
 
 \`\`\`bash
-bash ~/Engineering/Productivity/vicinae/topgrade/scripts/install-runner.sh
+bash scripts/install-runner.sh
 \`\`\`
 
 Then reopen **Topgrade**.`}

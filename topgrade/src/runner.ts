@@ -731,7 +731,7 @@ export async function startTopgradeService(options?: {
   const helper = join(homedir(), ".local/bin/vicinae-topgrade-run");
   if (!existsSync(helper)) {
     throw new Error(
-      "Runner not installed. Run: bash ~/Engineering/Productivity/vicinae/topgrade/scripts/install-runner.sh",
+      "Runner not installed. From this extension directory run: bash scripts/install-runner.sh",
     );
   }
   if (await isRunInProgress()) {
