@@ -1,3 +1,4 @@
+import { applySwayncDnd } from "./daemon";
 import {
   adaptDndPrefs,
   adaptMutedApps,
@@ -30,6 +31,9 @@ export function createAuraClient(
       return adaptDndPrefs(await call("Notifications.GetDnd"));
     },
     async setDnd(dnd) {
+      // Swaync is what actually draws banners. Hit it first so a sidecar
+      // outage cannot leave popups up after the user asked for silence.
+      await applySwayncDnd(dnd);
       await call("Notifications.SetDnd", { dnd });
     },
     async listNotifications(limit = 80) {

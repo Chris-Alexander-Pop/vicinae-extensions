@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { swayncDndArgs } from "../src/daemon";
 import {
   addMutedApp,
   dndBlocksNow,
@@ -121,6 +122,16 @@ describe("patches", () => {
     assert.deepEqual(addMutedApp(once, "slack"), once);
     assert.deepEqual(removeMutedApp(once, "SLACK"), []);
     assert.deepEqual(addMutedApp(once, "  "), once);
+  });
+});
+
+describe("swaync argv", () => {
+  it("turns DND on and hides existing banners", () => {
+    assert.deepEqual(swayncDndArgs(true, true), [
+      ["-dn", "-sw"],
+      ["--hide-all", "-sw"],
+    ]);
+    assert.deepEqual(swayncDndArgs(false, true), [["-df", "-sw"]]);
   });
 });
 
