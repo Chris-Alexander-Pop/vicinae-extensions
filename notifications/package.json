@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
+  "name": "notifications",
+  "title": "Notifications",
+  "description": "Aura inbox, DND, and quiet hours via the sidecar",
+  "categories": [
+    "System"
+  ],
+  "license": "MIT",
+  "platforms": [
+    "Linux"
+  ],
+  "author": "Chris-Alexander-Pop",
+  "contributors": [],
+  "pastContributors": [],
+  "icon": "extension_icon.svg",
+  "commands": [
+    {
+      "name": "toggle-dnd",
+      "title": "Toggle DND",
+      "subtitle": "DND Off",
+      "description": "Flip Aura do-not-disturb. Live On/Off/Quiet Hours shows as the command subtitle.",
+      "mode": "no-view",
+      "interval": "30s",
+      "keywords": [
+        "dnd",
+        "do not disturb",
+        "quiet",
+        "silence",
+        "mute"
+      ]
+    },
+    {
+      "name": "inbox",
+      "title": "Notifications",
+      "subtitle": "Aura",
+      "description": "Inbox, dismiss, mute apps, and quiet-hour schedule",
+      "mode": "view",
+      "keywords": [
+        "notifications",
+        "inbox",
+        "dnd",
+        "quiet hours",
+        "mute"
+      ]
+    }
+  ],
+  "preferences": [
+    {
+      "name": "sidecarUrl",
+      "type": "textfield",
+      "title": "Sidecar URL",
+      "description": "Aura sidecar base URL (loopback only). Leave empty for http://127.0.0.1:9080",
+      "default": "",
+      "required": false
+    }
+  ],
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "vici build",
+    "dev": "vici develop",
+    "test": "tsc -p tsconfig.test.json && node --test .test-out/tests/*.test.js"
+  },
+  "dependencies": {
+    "@vicinae/api": "^0.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true
+  }
+}

@@ -17,6 +17,7 @@ jobs:
           - brightness
           - gvl
           - hyprland-settings
+          - notifications
           - packages
           - power-profiles
           - todo
