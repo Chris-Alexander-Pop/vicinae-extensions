@@ -103,7 +103,7 @@ export async function listOpenApps(): Promise<OpenApp[]> {
 function helperMissingMessage(): string {
   return (
     "Boost needs pkexec (polkit) or sudo for /usr/local/bin/vicinae-boost-app. " +
-    "Optional private drop-in (not for the store): sudo bash power-profiles/private/install-boost-permissions.sh"
+    "Optional private drop-in (not for the store): sudo bash power/private/install-boost-permissions.sh"
   );
 }
 

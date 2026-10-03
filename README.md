@@ -11,11 +11,11 @@ Passwordless sudo installers and GUI sudo askpass helpers live under `*/private/
 | [`todo/`](todo/) | Todo, Todo Reminders | Ordered queue + priorities; desktop pings at HH:MM |
 | [`brightness/`](brightness/) | Set Brightness | `brightnessctl` |
 | [`bluetooth-power/`](bluetooth-power/) | Toggle Bluetooth | BlueZ D-Bus + `rfkill`; 30s subtitle |
-| [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Toggles via `hyprctl eval` (Lua); persisted in `vicinae-settings.lua` |
+| [`hyprland-settings/`](hyprland-settings/) | Hyprland Settings | Toggles, loaded-plugin options, and whole-plugin on/off via `hyprctl` (Lua); persisted in `vicinae-settings.lua` |
 | [`topgrade/`](topgrade/) | Topgrade | Background run + live tracker + retry |
 | [`antivirus/`](antivirus/) | Antivirus, Antivirus Status | ClamAV full/quick/path, history, resume, rkhunter |
 | [`packages/`](packages/) | Packages | Pacman + AUR browse/search/install/update/uninstall |
-| [`power-profiles/`](power-profiles/) | Select Power Profile, Boost App Priority | TLP profiles; boost helper is private-only |
+| [`power/`](power/) | Power, Boost App Priority | TLP profiles, turbo, ThinkPad fan, thermald target; helpers are private-only |
 | [`gvl/`](gvl/) | Govee Lights, Toggle Lights | `gvl` CLI |
 | [`notifications/`](notifications/) | Toggle DND, Notifications | Aura sidecar inbox + quiet hours |
 
@@ -38,7 +38,8 @@ npm run build   # installs to ~/.local/share/vicinae/extensions/<name>
 
 ```bash
 bash topgrade/scripts/install-runner.sh
-sudo bash power-profiles/private/install-boost-permissions.sh
+sudo bash power/private/install-boost-permissions.sh
+sudo bash power/private/install-thermal-permissions.sh
 ```
 
 See each extension README for tools, privilege, and what must not be copied into a store submission.

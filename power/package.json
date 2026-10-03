@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
-  "name": "power-profiles",
-  "title": "Power Profiles",
-  "description": "Switch TLP power profiles and boost open apps",
+  "name": "power",
+  "title": "Power",
+  "description": "TLP profiles, CPU turbo, ThinkPad fan, a thermald package target, and app priority boost",
   "categories": [
     "System"
   ],
@@ -16,10 +16,10 @@
   "icon": "extension_icon.svg",
   "commands": [
     {
-      "name": "power-profiles",
-      "title": "Select Power Profile",
+      "name": "power",
+      "title": "Power",
       "subtitle": "TLP",
-      "description": "Switch between performance, balanced, and power-saver via TLP",
+      "description": "TLP profiles, turbo, fan, and a thermald temperature target",
       "mode": "view"
     },
     {

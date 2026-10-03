@@ -1,0 +1,167 @@
+#!/bin/bash
+# Restrictive helper: intel_pstate turbo, ThinkPad fan auto/max,
+# and a thermald package-temperature target.
+set -euo pipefail
+
+NO_TURBO=/sys/devices/system/cpu/intel_pstate/no_turbo
+FAN=/proc/acpi/ibm/fan
+FAN_CONTROL=/sys/module/thinkpad_acpi/parameters/fan_control
+THERMAL_CONF=/etc/thermald/thermal-conf.xml
+DROPIN_DIR=/etc/systemd/system/thermald.service.d
+DROPIN="$DROPIN_DIR/vicinae-target.conf"
+VENDOR_UNIT=/usr/lib/systemd/system/thermald.service
+
+usage() {
+  echo "Usage: vicinae-thermal turbo on|off | fan auto|max | target <55-95> | thermald on|off" >&2
+  exit 2
+}
+
+write_target_conf() {
+  local celsius=$1
+  local milli=$((celsius * 1000))
+  local tmp
+  tmp="$(mktemp)"
+  cat >"$tmp" <<EOF
+<?xml version="1.0"?>
+<!-- Written by vicinae-thermal. Package target ${celsius} C. -->
+<ThermalConfiguration>
+  <Platform>
+    <Name>Vicinae package target</Name>
+    <ProductName>*</ProductName>
+    <Preference>QUIET</Preference>
+    <PPCC>
+      <PowerLimitIndex>0</PowerLimitIndex>
+      <PowerLimitMaximum>45000</PowerLimitMaximum>
+      <PowerLimitMinimum>12000</PowerLimitMinimum>
+      <TimeWindowMinimum>1000</TimeWindowMinimum>
+      <TimeWindowMaximum>5000</TimeWindowMaximum>
+      <StepSize>2000</StepSize>
+    </PPCC>
+    <ThermalZones>
+      <ThermalZone>
+        <Type>x86_pkg_temp</Type>
+        <TripPoints>
+          <TripPoint>
+            <SensorType>x86_pkg_temp</SensorType>
+            <Temperature>${milli}</Temperature>
+            <type>passive</type>
+            <ControlType>SEQUENTIAL</ControlType>
+            <CoolingDevice>
+              <index>1</index>
+              <type>rapl_controller</type>
+              <influence>100</influence>
+              <SamplingPeriod>2</SamplingPeriod>
+            </CoolingDevice>
+            <CoolingDevice>
+              <index>2</index>
+              <type>intel_pstate</type>
+              <influence>40</influence>
+              <SamplingPeriod>2</SamplingPeriod>
+            </CoolingDevice>
+          </TripPoint>
+        </TripPoints>
+      </ThermalZone>
+    </ThermalZones>
+  </Platform>
+</ThermalConfiguration>
+EOF
+  install -D -m 644 "$tmp" "$THERMAL_CONF"
+  rm -f "$tmp"
+}
+
+ensure_thermald_unit() {
+  [[ -x /usr/bin/thermald && -f "$VENDOR_UNIT" ]] || {
+    echo "thermald is not installed. Install it with: sudo pacman -S thermald" >&2
+    exit 1
+  }
+  local exec_line
+  exec_line="$(sed -n 's/^ExecStart=//p' "$VENDOR_UNIT" | head -1)"
+  [[ -n "$exec_line" ]] || {
+    echo "thermald unit has no ExecStart" >&2
+    exit 1
+  }
+  exec_line="${exec_line//--adaptive/}"
+  if [[ "$exec_line" != *"--config-file"* ]]; then
+    exec_line="$exec_line --config-file $THERMAL_CONF"
+  fi
+  exec_line="$(printf '%s' "$exec_line" | tr -s ' ' | sed 's/^ //;s/ $//')"
+  install -d -m 755 "$DROPIN_DIR"
+  local tmp
+  tmp="$(mktemp)"
+  cat >"$tmp" <<EOF
+[Service]
+# Adaptive DPTF tables ignore the user target in thermal-conf.xml.
+ExecStart=
+ExecStart=$exec_line
+EOF
+  install -m 644 "$tmp" "$DROPIN"
+  rm -f "$tmp"
+  systemctl daemon-reload
+}
+
+[[ $# -eq 2 ]] || usage
+subsystem=$1
+mode=$2
+
+case "$subsystem" in
+  turbo)
+    [[ -f "$NO_TURBO" ]] || {
+      echo "intel_pstate no_turbo is not available" >&2
+      exit 1
+    }
+    case "$mode" in
+      on) echo 0 >"$NO_TURBO" ;;
+      off) echo 1 >"$NO_TURBO" ;;
+      *) usage ;;
+    esac
+    ;;
+  fan)
+    [[ -f "$FAN" ]] || {
+      echo "ThinkPad fan interface is not available" >&2
+      exit 1
+    }
+    if [[ -f "$FAN_CONTROL" ]]; then
+      enabled="$(tr -d '[:space:]' <"$FAN_CONTROL")"
+      if [[ "$enabled" != "Y" && "$enabled" != "1" ]]; then
+        echo "ThinkPad fan control is disabled (thinkpad_acpi fan_control=${enabled})." >&2
+        echo "Run sudo bash power/private/install-thermal-permissions.sh and reboot if the module did not reload." >&2
+        exit 1
+      fi
+    fi
+    case "$mode" in
+      auto) printf 'level auto\n' >"$FAN" ;;
+      max) printf 'level full-speed\n' >"$FAN" ;;
+      *) usage ;;
+    esac
+    ;;
+  target)
+    [[ "$mode" =~ ^[0-9]+$ ]] || usage
+    if (( mode < 55 || mode > 95 )); then
+      echo "target must be a whole number from 55 to 95" >&2
+      exit 1
+    fi
+    write_target_conf "$mode"
+    ensure_thermald_unit
+    systemctl enable thermald
+    systemctl restart thermald
+    ;;
+  thermald)
+    case "$mode" in
+      on)
+        if [[ ! -f "$THERMAL_CONF" ]]; then
+          write_target_conf 75
+        fi
+        ensure_thermald_unit
+        systemctl enable --now thermald
+        ;;
+      off)
+        # thermald restores the RAPL limits it changed when it exits.
+        systemctl disable --now thermald
+        ;;
+      *) usage ;;
+    esac
+    ;;
+  *)
+    usage
+    ;;
+esac

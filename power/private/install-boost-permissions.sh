@@ -17,7 +17,7 @@ install -m 755 "$HELPER_SRC" "$HELPER_DST"
 
 tmp="$(mktemp)"
 cat >"$tmp" <<EOF
-# Vicinae local power-profiles: allow boosting selected apps without a password.
+# Vicinae local power: allow boosting selected apps without a password.
 %wheel ALL=(root) NOPASSWD: $HELPER_DST
 EOF
 

@@ -12,8 +12,8 @@ type ExtensionPreferences = {
 declare type Preferences = ExtensionPreferences
 
 declare namespace Preferences {
-  /** Command: Select Power Profile */
-	export type PowerProfiles = ExtensionPreferences & {
+  /** Command: Power */
+	export type Power = ExtensionPreferences & {
 		
 	}
 
@@ -24,8 +24,8 @@ declare namespace Preferences {
 }
 
 declare namespace Arguments {
-  /** Command: Select Power Profile */
-	export type PowerProfiles = {
+  /** Command: Power */
+	export type Power = {
 		
 	}
 

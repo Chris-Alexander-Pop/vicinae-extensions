@@ -4,10 +4,11 @@ private/
 **/private/
 
 # Passwordless sudo / sudoers installers (this machine only).
-power-profiles/private/
+power/private/
 
 # Interactive sudo askpass helpers used on this machine; keep them out of a store copy.
 topgrade/private/
 
 # Privileged root helpers that assume a local sudoers drop-in.
-power-profiles/bin/vicinae-boost-app
+power/bin/vicinae-boost-app
+power/bin/vicinae-thermal
