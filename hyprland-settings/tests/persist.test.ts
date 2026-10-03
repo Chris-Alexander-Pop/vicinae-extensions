@@ -55,12 +55,24 @@ describe("renderLuaFile / luaFromState", () => {
   it("emits a comment-only file when nothing is saved", () => {
     const lua = renderLuaFile([]);
     assert.match(lua, /No overrides yet/);
-    assert.equal(luaFromState({ version: 1, settings: {} }), lua);
+    assert.equal(
+      luaFromState({
+        version: 1,
+        settings: {},
+        plugins: {},
+        disabledPlugins: {},
+        darkWindows: {},
+      }),
+      lua,
+    );
   });
 
   it("emits hl.config / hl.device for saved toggles", () => {
     const lua = luaFromState({
       version: 1,
+      plugins: {},
+      disabledPlugins: {},
+      darkWindows: {},
       settings: {
         animations: { enabled: false },
         "software-cursors": { enabled: true },
@@ -87,6 +99,9 @@ describe("renderLuaFile / luaFromState", () => {
   it("emits hyprlang blocks for conf-based Hyprland", () => {
     const conf = hyprlangFromState({
       version: 1,
+      plugins: {},
+      disabledPlugins: {},
+      darkWindows: {},
       settings: {
         animations: { enabled: false },
         trackpoint: {

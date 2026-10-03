@@ -39,7 +39,14 @@ export async function hyprctl(
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    throw new Error(`hyprctl ${args.join(" ")} failed: ${message}`);
+    const extra =
+      err && typeof err === "object"
+        ? [Reflect.get(err, "stdout"), Reflect.get(err, "stderr")]
+            .filter((part) => typeof part === "string" && part.trim())
+            .join("\n")
+        : "";
+    const detail = [message, extra].filter(Boolean).join("\n");
+    throw new Error(`hyprctl ${args.join(" ")} failed: ${detail}`);
   }
 }
 
@@ -132,6 +139,11 @@ export function hyprlangDeviceEnabled(
   ].join("\n");
 }
 
+export async function reloadConfig(): Promise<void> {
+  const { stdout, stderr } = await hyprctl(["reload"]);
+  assertOk(stdout, stderr, "reload");
+}
+
 export async function evalLua(code: string): Promise<void> {
   const { stdout, stderr } = await hyprctl(["eval", code]);
   assertOk(stdout, stderr, `eval ${code}`);
@@ -198,6 +210,135 @@ export function looksLikeTrackpoint(name: string): boolean {
     n.includes("track-point") ||
     n.startsWith("tpps/")
   );
+}
+
+export type LoadedPlugin = {
+  name: string;
+  author: string;
+  version: string;
+  description: string;
+};
+
+/** Parse `hyprctl -j plugin list`. Empty text and the non-JSON empty message are no plugins. */
+export function parsePluginList(stdout: string): LoadedPlugin[] {
+  const trimmed = stdout.trim();
+  if (!trimmed || trimmed === "no plugins loaded") return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    throw new Error(
+      `Could not parse plugin list: ${trimmed.slice(0, 200)}`,
+    );
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error("plugin list was not a JSON array");
+  }
+
+  const out: LoadedPlugin[] = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    if (!name) continue;
+    out.push({
+      name,
+      author: typeof record.author === "string" ? record.author : "",
+      version: typeof record.version === "string" ? record.version : "",
+      description:
+        typeof record.description === "string" ? record.description : "",
+    });
+  }
+  return out;
+}
+
+export async function listPlugins(): Promise<LoadedPlugin[]> {
+  const { stdout, stderr } = await hyprctl(["-j", "plugin", "list"]);
+  assertOk(stdout, stderr, "plugin list");
+  return parsePluginList(stdout);
+}
+
+export type HyprInstance = {
+  instance: string;
+  pid: number;
+};
+
+export function parseInstances(stdout: string): HyprInstance[] {
+  const trimmed = stdout.trim();
+  if (!trimmed) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed) as unknown;
+  } catch {
+    throw new Error(`Could not parse instances: ${trimmed.slice(0, 200)}`);
+  }
+  if (!Array.isArray(parsed)) return [];
+  const out: HyprInstance[] = [];
+  for (const row of parsed) {
+    if (!row || typeof row !== "object") continue;
+    const record = row as Record<string, unknown>;
+    const pid = typeof record.pid === "number" ? record.pid : Number(record.pid);
+    const instance = typeof record.instance === "string" ? record.instance : "";
+    if (!Number.isInteger(pid) || pid <= 0) continue;
+    out.push({ instance, pid });
+  }
+  return out;
+}
+
+export async function listInstances(): Promise<HyprInstance[]> {
+  const { stdout, stderr } = await hyprctl(["-j", "instances"]);
+  assertOk(stdout, stderr, "instances");
+  return parseInstances(stdout);
+}
+
+function commandFailed(err: unknown): string {
+  if (!err || typeof err !== "object") return String(err);
+  const row = err as { stdout?: unknown; stderr?: unknown; message?: unknown };
+  return [row.stdout, row.stderr, row.message]
+    .filter((part) => typeof part === "string" && part.trim())
+    .join("\n");
+}
+
+/** Loads a plugin by absolute path. Already-loaded is success. */
+export async function loadPlugin(path: string): Promise<void> {
+  try {
+    const { stdout, stderr } = await hyprctl(["plugin", "load", path]);
+    const out = `${stdout}\n${stderr}`.trim();
+    if (/cannot load a plugin twice/i.test(out)) return;
+    assertOk(stdout, stderr, "plugin load");
+    if (/could not be loaded|not enough args/i.test(out)) {
+      throw new Error(out || "plugin load failed");
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : commandFailed(err);
+    if (/cannot load a plugin twice/i.test(message)) return;
+    if (err instanceof Error && /plugin load failed/.test(err.message)) throw err;
+    throw new Error(message || "plugin load failed");
+  }
+}
+
+/**
+ * Unloads a plugin by the path Hyprland stored at load time.
+ * `missing` means that string is not the one Hyprland has. The caller reloads
+ * so a config `hl.plugin.load` of a different string can be skipped instead.
+ */
+export async function unloadPlugin(path: string): Promise<"ok" | "missing"> {
+  try {
+    const { stdout, stderr } = await hyprctl(["plugin", "unload", path]);
+    const out = `${stdout}\n${stderr}`.trim();
+    if (/plugin not loaded/i.test(out)) return "missing";
+    assertOk(stdout, stderr, "plugin unload");
+    if (/not enough args|could not/i.test(out) && !/^ok$/i.test(stdout.trim())) {
+      throw new Error(out || "plugin unload failed");
+    }
+    return "ok";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : commandFailed(err);
+    if (/plugin not loaded/i.test(message)) return "missing";
+    if (err instanceof Error && /plugin unload failed/.test(err.message)) throw err;
+    throw new Error(message || "plugin unload failed");
+  }
 }
 
 /** Env pin, else first hyprctl mouse that looks like a TrackPoint. */

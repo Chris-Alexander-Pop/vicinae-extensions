@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/vicinaehq/vicinae/refs/heads/main/extra/schemas/extension.json",
   "name": "hyprland-settings",
   "title": "Hyprland Settings",
-  "description": "Toggle Hyprland runtime settings (animations, touchscreen, and more)",
+  "description": "Toggle Hyprland settings, edit loaded plugin options, and turn plugins on or off",
   "categories": [
     "System"
   ],
@@ -19,7 +19,7 @@
       "name": "hyprland-settings",
       "title": "Hyprland Settings",
       "subtitle": "Hyprland",
-      "description": "Enable/disable animations, touchscreen, blur, shadows, and other Hyprland options",
+      "description": "Enable/disable Hyprland options, edit loaded plugin settings, and turn plugins on or off",
       "mode": "view",
       "keywords": [
         "hypr",
@@ -28,7 +28,13 @@
         "touchscreen",
         "touch",
         "blur",
-        "wm"
+        "wm",
+        "plugin",
+        "cursor",
+        "hyprgrass",
+        "hyprglass",
+        "shade",
+        "darkwindow"
       ]
     },
     {

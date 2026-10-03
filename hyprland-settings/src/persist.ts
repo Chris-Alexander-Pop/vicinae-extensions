@@ -7,20 +7,51 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { parseDarkWindowConfig, type DarkWindowConfig } from "./darkwindow";
+import { isKnownPluginOption } from "./plugins";
+import {
+  isSafePluginPath,
+  renderDisabledPluginsLua,
+  withPluginSwitchHook,
+  type DisabledPlugin,
+} from "./plugin-switch";
+
+export type { DisabledPlugin };
 
 export type PersistedSetting = {
   enabled: boolean;
   deviceName?: string;
 };
 
+/** One plugin option saved by Hyprland Settings. `option` keys live on the parent map. */
+export type PluginPersistValue =
+  | { kind: "bool"; value: boolean }
+  | { kind: "int"; value: number }
+  | { kind: "float"; value: number }
+  | { kind: "string"; value: string }
+  | { kind: "color"; value: string };
+
 export type PersistState = {
   version: 1;
   settings: Record<string, PersistedSetting>;
+  plugins: Record<string, PluginPersistValue>;
+  /** Absolute .so paths that `hl.plugin.load` must skip. Keyed by path. */
+  disabledPlugins: Record<string, DisabledPlugin>;
+  /** Dark Window shades keyed by id. */
+  darkWindows: Record<string, DarkWindowConfig>;
 };
 
 export const HOOK_MARKER = "vicinae-hyprland-settings";
 
-const EMPTY: PersistState = { version: 1, settings: {} };
+function emptyState(): PersistState {
+  return {
+    version: 1,
+    settings: {},
+    plugins: {},
+    disabledPlugins: {},
+    darkWindows: {},
+  };
+}
 
 export type PersistPaths = {
   statePath: string;
@@ -28,6 +59,7 @@ export type PersistPaths = {
   confPath: string;
   hyprlandLuaPath: string;
   hyprlandConfPath: string;
+  pluginsLuaPath: string;
 };
 
 export type EntrypointKind = "lua" | "conf" | "none";
@@ -63,6 +95,7 @@ export function persistPaths(
     confPath: join(hypr, "vicinae-settings.conf"),
     hyprlandLuaPath: join(hypr, "hyprland.lua"),
     hyprlandConfPath: join(hypr, "hyprland.conf"),
+    pluginsLuaPath: join(hypr, "vicinae-plugins.lua"),
   };
 }
 
@@ -81,9 +114,48 @@ function readText(path: string): string | undefined {
   }
 }
 
+function parsePluginValue(value: unknown): PluginPersistValue | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const row = value as { kind?: unknown; value?: unknown };
+  if (row.kind === "bool" && typeof row.value === "boolean") {
+    return { kind: "bool", value: row.value };
+  }
+  if (
+    row.kind === "int" &&
+    typeof row.value === "number" &&
+    Number.isInteger(row.value)
+  ) {
+    return { kind: "int", value: row.value };
+  }
+  if (
+    row.kind === "float" &&
+    typeof row.value === "number" &&
+    Number.isFinite(row.value)
+  ) {
+    return { kind: "float", value: row.value };
+  }
+  if (row.kind === "string" && typeof row.value === "string") {
+    return { kind: "string", value: row.value };
+  }
+  if (
+    row.kind === "color" &&
+    typeof row.value === "string" &&
+    /^0x[0-9a-f]{8}$/.test(row.value)
+  ) {
+    return { kind: "color", value: row.value };
+  }
+  return undefined;
+}
+
 export function parsePersistState(raw: unknown): PersistState {
-  if (!raw || typeof raw !== "object") return { ...EMPTY, settings: {} };
-  const o = raw as { version?: unknown; settings?: unknown };
+  if (!raw || typeof raw !== "object") return emptyState();
+  const o = raw as {
+    version?: unknown;
+    settings?: unknown;
+    plugins?: unknown;
+    disabledPlugins?: unknown;
+    darkWindows?: unknown;
+  };
   const settings: Record<string, PersistedSetting> = {};
   if (o.settings && typeof o.settings === "object") {
     for (const [id, value] of Object.entries(
@@ -101,7 +173,77 @@ export function parsePersistState(raw: unknown): PersistState {
         : { enabled: row.enabled };
     }
   }
-  return { version: 1, settings };
+  const plugins: Record<string, PluginPersistValue> = {};
+  if (o.plugins && typeof o.plugins === "object") {
+    for (const [option, value] of Object.entries(
+      o.plugins as Record<string, unknown>,
+    )) {
+      if (!isKnownPluginOption(option)) continue;
+      const parsed = parsePluginValue(value);
+      if (parsed) plugins[option] = parsed;
+    }
+  }
+  return {
+    version: 1,
+    settings,
+    plugins,
+    disabledPlugins: parseDisabled(o),
+    darkWindows: parseDarkWindows(o.darkWindows),
+  };
+}
+
+function cleanLine(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\r\n\0]/g, " ").trim();
+}
+
+function parseDisabled(raw: {
+  disabledPlugins?: unknown;
+}): Record<string, DisabledPlugin> {
+  const out: Record<string, DisabledPlugin> = {};
+  const source = raw.disabledPlugins;
+  if (!source || typeof source !== "object") return out;
+  for (const [key, value] of Object.entries(source as Record<string, unknown>)) {
+    if (!value || typeof value !== "object") continue;
+    const row = value as Record<string, unknown>;
+    const path = typeof row.path === "string" ? row.path : key;
+    const name = cleanLine(row.name);
+    if (path !== key || !isSafePluginPath(path) || !name) continue;
+    out[path] = {
+      name,
+      path,
+      description: cleanLine(row.description),
+      author: cleanLine(row.author),
+      version: cleanLine(row.version),
+    };
+  }
+  return out;
+}
+
+function parseDarkWindows(raw: unknown): Record<string, DarkWindowConfig> {
+  const out: Record<string, DarkWindowConfig> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const parsed = parseDarkWindowConfig(value);
+    if (!parsed || parsed.id !== key) continue;
+    out[key] = parsed;
+  }
+  return out;
+}
+
+function nextState(
+  state: PersistState,
+  patch: Partial<
+    Pick<PersistState, "settings" | "plugins" | "disabledPlugins" | "darkWindows">
+  >,
+): PersistState {
+  return {
+    version: 1,
+    settings: patch.settings ?? state.settings,
+    plugins: patch.plugins ?? state.plugins,
+    disabledPlugins: patch.disabledPlugins ?? state.disabledPlugins ?? {},
+    darkWindows: patch.darkWindows ?? state.darkWindows ?? {},
+  };
 }
 
 export function readPersistState(
@@ -111,7 +253,7 @@ export function readPersistState(
     const raw = readFileSync(persistPaths(env).statePath, "utf8");
     return parsePersistState(JSON.parse(raw) as unknown);
   } catch {
-    return { version: 1, settings: {} };
+    return emptyState();
   }
 }
 
@@ -131,12 +273,70 @@ export function upsertPersistedSetting(
   env: NodeJS.ProcessEnv = process.env,
 ): PersistState {
   const state = readPersistState(env);
-  const next: PersistState = {
-    version: 1,
+  const next = nextState(state, {
     settings: { ...state.settings, [id]: patch },
-  };
+  });
   writePersistState(next, env);
   return next;
+}
+
+export function mergePluginValues(
+  patch: Record<string, PluginPersistValue>,
+  env: NodeJS.ProcessEnv = process.env,
+): PersistState {
+  const state = readPersistState(env);
+  const plugins = { ...state.plugins };
+  for (const [option, value] of Object.entries(patch)) {
+    if (!isKnownPluginOption(option)) continue;
+    plugins[option] = value;
+  }
+  const next = nextState(state, { plugins });
+  writePersistState(next, env);
+  return next;
+}
+
+export function dropPluginValues(
+  options: string[],
+  env: NodeJS.ProcessEnv = process.env,
+): PersistState {
+  const state = readPersistState(env);
+  const plugins = { ...state.plugins };
+  for (const option of options) delete plugins[option];
+  const next = nextState(state, { plugins });
+  writePersistState(next, env);
+  return next;
+}
+
+export function writeDarkWindows(
+  darkWindows: Record<string, DarkWindowConfig>,
+  env: NodeJS.ProcessEnv = process.env,
+): PersistState {
+  const next = nextState(readPersistState(env), { darkWindows });
+  writePersistState(next, env);
+  return next;
+}
+
+export function writeDisabledPlugins(
+  disabled: Record<string, DisabledPlugin>,
+  env: NodeJS.ProcessEnv = process.env,
+): PersistState {
+  const next = nextState(readPersistState(env), { disabledPlugins: disabled });
+  writePersistState(next, env);
+  atomicWrite(persistPaths(env).pluginsLuaPath, renderDisabledPluginsLua(disabled));
+  return next;
+}
+
+/** Prepend the load-skip hook. Throws when hyprland.lua is missing. */
+export function ensurePluginSwitchHook(
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  const path = persistPaths(env).hyprlandLuaPath;
+  if (!existsSync(path)) {
+    throw new Error(
+      "No hyprland.lua. Turning a plugin off needs that file so the next reload skips it.",
+    );
+  }
+  return patchFile(path, withPluginSwitchHook);
 }
 
 export function renderLuaFile(codes: string[]): string {

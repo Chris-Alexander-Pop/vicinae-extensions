@@ -26,6 +26,8 @@ import {
   type PersistedSetting,
   type SetupStatus,
 } from "./persist";
+import { darkWindowLuaChunk } from "./darkwindow";
+import { pluginHyprlangChunks, pluginLuaChunks } from "./plugins";
 
 export type SettingKind = "bool" | "int-as-bool" | "device-bool";
 
@@ -174,6 +176,9 @@ export function luaFromState(state: PersistState): string {
     const code = luaForPersisted(def, saved);
     if (code) codes.push(code);
   }
+  codes.push(...pluginLuaChunks(state.plugins));
+  const shades = darkWindowLuaChunk(Object.values(state.darkWindows ?? {}));
+  if (shades) codes.push(shades);
   return renderLuaFile(codes);
 }
 
@@ -213,6 +218,7 @@ export function hyprlangFromState(state: PersistState): string {
     const block = hyprlangForPersisted(def, saved);
     if (block) blocks.push(block);
   }
+  blocks.push(...pluginHyprlangChunks(state.plugins));
   return renderConfFile(blocks);
 }
 
@@ -236,13 +242,25 @@ export function stateFromLive(live: SettingState[]): PersistState {
         ? { enabled: item.enabled, deviceName: item.deviceName }
         : { enabled: item.enabled };
   }
-  return { version: 1, settings };
+  return {
+    version: 1,
+    settings,
+    plugins: {},
+    disabledPlugins: {},
+    darkWindows: {},
+  };
 }
 
 function seedPersistFromLive(live: SettingState[]): void {
   if (live.length === 0) return;
-  if (Object.keys(readPersistState().settings).length > 0) return;
-  const state = stateFromLive(live);
+  const existing = readPersistState();
+  if (Object.keys(existing.settings).length > 0) return;
+  const state: PersistState = {
+    ...stateFromLive(live),
+    plugins: existing.plugins,
+    disabledPlugins: existing.disabledPlugins,
+    darkWindows: existing.darkWindows,
+  };
   writePersistState(state);
   writeGeneratedConfig(state);
 }
