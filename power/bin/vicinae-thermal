@@ -31,8 +31,8 @@ write_target_conf() {
     <Preference>QUIET</Preference>
     <PPCC>
       <PowerLimitIndex>0</PowerLimitIndex>
-      <PowerLimitMaximum>45000</PowerLimitMaximum>
-      <PowerLimitMinimum>12000</PowerLimitMinimum>
+      <PowerLimitMaximum>55000</PowerLimitMaximum>
+      <PowerLimitMinimum>55000</PowerLimitMinimum>
       <TimeWindowMinimum>1000</TimeWindowMinimum>
       <TimeWindowMaximum>5000</TimeWindowMaximum>
       <StepSize>2000</StepSize>
@@ -46,18 +46,6 @@ write_target_conf() {
             <Temperature>${milli}</Temperature>
             <type>passive</type>
             <ControlType>SEQUENTIAL</ControlType>
-            <CoolingDevice>
-              <index>1</index>
-              <type>rapl_controller</type>
-              <influence>100</influence>
-              <SamplingPeriod>2</SamplingPeriod>
-            </CoolingDevice>
-            <CoolingDevice>
-              <index>2</index>
-              <type>intel_pstate</type>
-              <influence>40</influence>
-              <SamplingPeriod>2</SamplingPeriod>
-            </CoolingDevice>
           </TripPoint>
         </TripPoints>
       </ThermalZone>
