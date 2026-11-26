@@ -13,6 +13,7 @@ import {
   formatDays,
   formatStatusLine,
   isOn,
+  formatRamp,
   parseConfigShow,
   parseStatus,
 } from "../src/status";
@@ -43,6 +44,19 @@ describe("status formatting", () => {
     });
     assert.equal(isOn(status), true);
     assert.equal(formatStatusLine(status), "On · 80% · red");
+    assert.equal(status.mode, "");
+  });
+
+  it("keeps the active ramp name from daemon status", () => {
+    const status = parseStatus({
+      onOff: 1,
+      brightness: 40,
+      color: { r: 0, g: 0, b: 0 },
+      colorTemInKelvin: 2700,
+      mode: "sleep:weekday-sleep",
+    });
+    assert.equal(status.mode, "sleep:weekday-sleep");
+    assert.equal(formatRamp(status.mode), "sleep · weekday-sleep");
   });
 
   it("treats malformed status as off/black", () => {

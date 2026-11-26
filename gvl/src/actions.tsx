@@ -19,7 +19,7 @@ export function HubDropdown({
 }) {
   return (
     <List.Dropdown
-      tooltip="Ctrl+1–6 switch panels"
+      tooltip="Alt+1–6 switch panels"
       value={tab}
       onChange={(value) => onChange(value as HubTab)}
     >
@@ -67,7 +67,7 @@ export function GlobalActions({ ctx }: { ctx: HubCtx }) {
           onAction={() => void ctx.toggle()}
         />
         <Action
-          title="Stop Mode"
+          title={ctx.status?.mode ? "Cancel Active Ramp" : "Stop Mode"}
           icon={Icon.Stop}
           shortcut={SHORTCUT_STOP}
           onAction={() => void ctx.stop()}

@@ -29,6 +29,7 @@ import {
   formatDays,
   formatLook,
   formatPatch,
+  formatRamp,
   formatStatusLine,
   formatUpcoming,
   type ScheduleEntry,
@@ -208,6 +209,21 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
     if (ok) await reload();
   };
 
+  const ramp = ctx.status?.mode ?? "";
+
+  const cancelRamp = async () => {
+    const ok = await ctx.run(["stop"], "Canceling ramp");
+    if (ok) await ctx.refresh();
+  };
+
+  const cancelAction = (
+    <Action
+      title="Cancel Active Ramp"
+      icon={Icon.Stop}
+      onAction={() => void cancelRamp()}
+    />
+  );
+
   const nav = ctx.status
     ? `Schedules · ${formatStatusLine(ctx.status)}`
     : "Schedules";
@@ -273,6 +289,7 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
                 icon={Icon.ArrowClockwise}
                 onAction={() => void reload()}
               />
+              {cancelAction}
               {newActions}
               <GlobalActions ctx={ctx} />
             </ActionPanel>
@@ -291,6 +308,7 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
       searchBarAccessory={<HubDropdown tab={ctx.tab} onChange={ctx.setTab} />}
       actions={
         <ActionPanel>
+          {ramp ? cancelAction : null}
           {newActions}
           <GlobalActions ctx={ctx} />
         </ActionPanel>
@@ -298,11 +316,16 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
     >
       {schedules.length === 0 ? (
         <List.EmptyView
-          icon={Icon.Calendar}
-          title="No schedules"
-          description="Create a wake or sleep ramp on gvld."
+          icon={ramp ? Icon.Stop : Icon.Calendar}
+          title={ramp ? formatRamp(ramp) : "No schedules"}
+          description={
+            ramp
+              ? "This ramp is still running. Saved schedules are empty, so cancel it here."
+              : "No saved schedules. A ramp that already started keeps running until you cancel it."
+          }
           actions={
             <ActionPanel>
+              {cancelAction}
               {newActions}
               <GlobalActions ctx={ctx} />
             </ActionPanel>
@@ -310,6 +333,21 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
         />
       ) : (
         <List.Section title={`${schedules.length} schedule${schedules.length === 1 ? "" : "s"}`}>
+          {ramp ? (
+            <List.Item
+              title={formatRamp(ramp)}
+              subtitle="Running now"
+              icon={{ source: Icon.Stop, tintColor: Color.Orange }}
+              accessories={[{ tag: { value: "live", color: Color.Orange } }]}
+              actions={
+                <ActionPanel>
+                  {cancelAction}
+                  {newActions}
+                  <GlobalActions ctx={ctx} />
+                </ActionPanel>
+              }
+            />
+          ) : null}
           {schedules.map((e) => (
             <List.Item
               key={e.id}
@@ -399,6 +437,7 @@ export function SchedulesView({ ctx }: { ctx: HubCtx }) {
               }
               actions={
                 <ActionPanel>
+                  {ramp ? cancelAction : null}
                   <Action
                     title="Run Now"
                     icon={Icon.Play}

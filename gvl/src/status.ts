@@ -5,6 +5,8 @@ export type LightStatus = {
   brightness: number;
   color: Rgb;
   colorTemInKelvin: number;
+  /** Active gvld ramp or mode, e.g. "sleep:weekday-sleep". Empty when idle. */
+  mode: string;
 };
 
 export type GvlConfig = {
@@ -64,6 +66,7 @@ export function parseStatus(raw: unknown): LightStatus {
     brightness?: unknown;
     color?: { r?: unknown; g?: unknown; b?: unknown };
     colorTemInKelvin?: unknown;
+    mode?: unknown;
   };
   return {
     onOff: Number(o.onOff) || 0,
@@ -74,7 +77,15 @@ export function parseStatus(raw: unknown): LightStatus {
       b: Number(o.color?.b) || 0,
     },
     colorTemInKelvin: Number(o.colorTemInKelvin) || 0,
+    mode: typeof o.mode === "string" ? o.mode : "",
   };
+}
+
+/** "sleep:weekday-sleep" → "sleep · weekday-sleep". */
+export function formatRamp(mode: string): string {
+  const i = mode.indexOf(":");
+  if (i <= 0) return mode;
+  return `${mode.slice(0, i)} · ${mode.slice(i + 1)}`;
 }
 
 export function isOn(status: LightStatus): boolean {

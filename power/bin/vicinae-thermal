@@ -31,11 +31,11 @@ write_target_conf() {
     <Preference>QUIET</Preference>
     <PPCC>
       <PowerLimitIndex>0</PowerLimitIndex>
-      <PowerLimitMaximum>55000</PowerLimitMaximum>
-      <PowerLimitMinimum>55000</PowerLimitMinimum>
+      <PowerLimitMaximum>45000</PowerLimitMaximum>
+      <PowerLimitMinimum>12000</PowerLimitMinimum>
       <TimeWindowMinimum>1000</TimeWindowMinimum>
       <TimeWindowMaximum>5000</TimeWindowMaximum>
-      <StepSize>2000</StepSize>
+      <StepSize>5000</StepSize>
     </PPCC>
     <ThermalZones>
       <ThermalZone>

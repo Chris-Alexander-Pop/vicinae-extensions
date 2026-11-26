@@ -7,7 +7,7 @@ import {
 } from "@vicinae/api";
 import { GlobalActions, HubDropdown } from "./actions";
 import { BRIGHTNESS_PRESETS, nearestPreset } from "./presets";
-import { formatColor, formatStatusLine, isOn } from "./status";
+import { formatColor, formatRamp, formatStatusLine, isOn } from "./status";
 import type { HubCtx } from "./types";
 
 function StatusDetail({ ctx }: { ctx: HubCtx }) {
@@ -35,6 +35,12 @@ function StatusDetail({ ctx }: { ctx: HubCtx }) {
             text={`${status.brightness}%`}
           />
           <List.Item.Detail.Metadata.Label title="Look" text={color} />
+          {status.mode ? (
+            <List.Item.Detail.Metadata.Label
+              title="Ramp"
+              text={formatRamp(status.mode)}
+            />
+          ) : null}
           {status.colorTemInKelvin > 0 ? (
             <List.Item.Detail.Metadata.Label
               title="Temperature"
