@@ -31,7 +31,7 @@ const MAPS = [
   "7f300-7f311 r-xp 00000000 08:01 3 /opt/out/hyprgrass.so",
   "7f400-7f411 r-xp 00000000 08:01 4 /opt/out/hyprglass.so",
   "7f500-7f511 r-xp 00000000 08:01 5 /opt/My Plugins/Hypr-DarkWindow.so (deleted)",
-  "7f600-7f611 r-xp 00000000 08:01 6 /opt/out/screen-shadow-omit.so",
+  "7f600-7f611 r-xp 00000000 08:01 6 /opt/out/hypr-extra.so",
   "7f700-7f711 r-xp 00000000 08:01 7 /usr/bin/Hyprland",
 ].join("\n");
 
@@ -48,14 +48,14 @@ describe("plugin path matching", () => {
         "hyprgrass",
         "hyprglass",
         "Hypr-DarkWindow",
-        "screen-shadow-omit",
+        "hypr-extra",
       ],
       paths,
     );
     assert.equal(matched["dynamic-cursors"], "/opt/out/hypr-dynamic-cursors.so");
     assert.equal(matched.hyprgrass, "/opt/out/hyprgrass.so");
     assert.equal(matched.hyprglass, "/opt/out/hyprglass.so");
-    assert.equal(matched["screen-shadow-omit"], "/opt/out/screen-shadow-omit.so");
+    assert.equal(matched["hypr-extra"], "/opt/out/hypr-extra.so");
     assert.equal(
       matched["Hypr-DarkWindow"],
       null,
